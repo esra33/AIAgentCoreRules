@@ -128,6 +128,61 @@ class TestModel(PerfViewTestCase):
         self.assertEqual({"sessions": 1, "count": 4, "tokens": 25000}, doc_review["miro_confluence"])
 
 
+class TestFeatureScope(PerfViewTestCase):
+    def write_progress(self, sessions_text):
+        path = self.root.parent.parent / "Demo_Progress.md"
+        path.write_text('feature:        "Demo"\ncurrent_phase:  "3_design"\n' + sessions_text + "status: in_progress\n")
+        return path
+
+    def write_feature_sessions(self):
+        self.write_three()
+        self.write_session("2026-10-04_0900_feature_dddddddd", "dddddddd4", "2026-10-04T09:00:00-07:00",
+                           age_seconds=86400, feature="Demo", breakdown=breakdown(2000, 100))
+        self.write_session("2026-10-05_0900_other_eeeeeeee", "eeeeeeee5", "2026-10-05T09:00:00-07:00",
+                           age_seconds=86400, feature="Other", breakdown=breakdown(8000, 100))
+
+    def in_feature(self, progress):
+        model = perf_view.build_model(self.root, progress_path=progress)
+        return model, sorted(s["id"] for s in model["sessions"] if s["in_feature"])
+
+    def test_no_progress_file_means_no_feature(self):
+        self.write_feature_sessions()
+        model, ids = self.in_feature(None)
+        self.assertEqual(("", [], 0), (model["feature"], ids, model["feature_overview"]["sessions"]))
+
+    def test_tagged_and_inline_listed_sessions_belong(self):
+        self.write_feature_sessions()
+        progress = self.write_progress('sessions:       ["2026-10-01_0900_bug-fix_aaaaaaaa"]   # renamed "x_ffffffff" ignored\n')
+        model, ids = self.in_feature(progress)
+        self.assertEqual(("Demo", ["aaaaaaaa", "dddddddd"]), (model["feature"], ids))
+        self.assertEqual((2, 3000), (model["feature_overview"]["sessions"], model["feature_overview"]["total"]))
+        self.assertEqual(5, model["overview"]["sessions"])
+
+    def test_block_list_with_comments(self):
+        self.write_feature_sessions()
+        progress = self.write_progress('sessions:\n  - "2026-10-03_0900_small-task_cccccccc"   # a "note"\n'
+                                       '  - "2026-10-02_0900_other_bbbbbbbb"\n')
+        self.assertEqual(["bbbbbbbb", "cccccccc", "dddddddd"], self.in_feature(progress)[1])
+
+    def test_lines_after_the_block_are_not_sessions(self):
+        self.write_feature_sessions()
+        progress = self.write_progress('sessions:\n  - "2026-10-03_0900_small-task_cccccccc"\n'
+                                       'notes: "2026-10-02_0900_other_bbbbbbbb"\n')
+        self.assertEqual(["cccccccc", "dddddddd"], self.in_feature(progress)[1])
+
+    def test_server_scopes_the_tab_to_the_progress_file(self):
+        self.write_feature_sessions()
+        progress = self.write_progress('sessions: []\n')
+        doc = progress.parent / "Demo_TDD.md"
+        doc.write_text("# TDD\n")
+        tab = review_server._tabs([doc])[-1]
+        self.assertEqual(progress.resolve(), tab["progress"])
+        self.assertEqual("Demo", json.loads(review_server._tab_source(tab))["feature"])
+        before = review_server._tab_mtime(tab)
+        os.utime(progress, (before + 5, before + 5))
+        self.assertEqual(before + 5, review_server._tab_mtime(tab))
+
+
 class TestServerTab(PerfViewTestCase):
     def test_no_sessions_means_no_tab(self):
         self.assertIsNone(perf_view.find_reports_root(self.doc))

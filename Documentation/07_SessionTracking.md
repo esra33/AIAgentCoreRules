@@ -39,6 +39,11 @@ agent does not set a work type, it follows the lane (small_task → small_featur
 question) and metrics.md marks it "(from lane)". The meta-analysis groups cost by work type to
 show which kinds of work are most expensive.
 
+The **feature** tag (`set --feature <Name>`) ties a session to a CreateFeature feature. /feature
+and /resume-work always set it; /small-task, /bug-fix and /run-investigation-mode set it when the
+work is for an in-progress feature. The feature's Performance tab in the doc-review preview counts
+tagged sessions plus those listed under `sessions:` in its Progress file.
+
 An **inaccuracy** is an agent error. An **iteration** is a decision — a scope change or a new
 direction — and is not counted against the agent.
 

@@ -7,10 +7,16 @@ Stdlib only. Reads the session folders session_lifecycle.py writes under the rep
 
 A session without a compiled breakdown is listed but kept out of the overview statistics. The
 active session's breakdown is as fresh as its last compile (the Stop hook recompiles after replies).
+
+Served from a feature folder (one with <Name>_Progress.md), the model also scopes to that feature:
+a session belongs to it when its session.json "feature" tag (set --feature) names it, or when its
+folder is listed under the Progress file's "sessions:" (matched by the id8 suffix, since a lane
+change renames the folder). The page toggles between that view and all sessions.
 """
 import datetime
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -28,6 +34,9 @@ SESSIONS_DIR = "Sessions"
 STATE_FILE = "session.json"
 # No ended_at and touched this recently = still running; older ones were closed without the SessionEnd hook.
 ACTIVE_WINDOW_SECONDS = 60 * 60
+FEATURE_LINE = re.compile(r'^feature:\s*"?([^"\s#]+)', re.MULTILINE)
+# A quoted session folder name, e.g. "2026-10-29_1358_small-task_75453a1d"; group 1 = its id8.
+SESSION_FOLDER = re.compile(r'"\d{4}-\d{2}-\d{2}_[^"]*_([0-9a-f]{8})"')
 
 
 def find_reports_root(doc_path: Path) -> Optional[Path]:
@@ -49,18 +58,48 @@ def watched_paths(reports_root: Path) -> List[Path]:
     return [reports_root] + _state_paths(reports_root)
 
 
-def build_model(reports_root: Path, now: Optional[float] = None) -> Dict:
+def build_model(reports_root: Path, now: Optional[float] = None, progress_path: Optional[Path] = None) -> Dict:
     now = time.time() if now is None else now
+    feature, listed_ids = feature_filter(progress_path)
     sessions = []
     for state_path in _state_paths(reports_root):
         session = _session(state_path, now)
         if session is not None:
+            session["in_feature"] = bool(feature) and (session["feature"] == feature or session["id"] in listed_ids)
             sessions.append(session)
     sessions.sort(key=lambda session: session["sort_key"], reverse=True)
     for session in sessions:
         del session["sort_key"]
     return {"root": str(reports_root), "standardized_names": token_breakdown.STANDARDIZED,
-            "overview": _overview(sessions), "sessions": sessions}
+            "overview": _overview(sessions), "sessions": sessions, "feature": feature,
+            "feature_overview": _overview([session for session in sessions if session["in_feature"]])}
+
+
+def feature_filter(progress_path: Optional[Path]):
+    """(feature name, id8s listed under "sessions:") from a <Name>_Progress.md; ("", set()) without one."""
+    if progress_path is None:
+        return "", set()
+    try:
+        text = progress_path.read_text()
+    except OSError:
+        return "", set()
+    match = FEATURE_LINE.search(text)
+    feature = match.group(1) if match else progress_path.name[:-len("_Progress.md")]
+    return feature, set(SESSION_FOLDER.findall(_sessions_block(text)))
+
+
+def _sessions_block(text: str) -> str:
+    """The "sessions:" value: an inline [..] list on its own line, or the indented "- " lines below it."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("sessions:"):
+            block = [line]
+            for following in lines[index + 1:]:
+                if following and not following[0].isspace():
+                    break
+                block.append(following)
+            return "\n".join(block)
+    return ""
 
 
 def _state_paths(reports_root: Path) -> List[Path]:

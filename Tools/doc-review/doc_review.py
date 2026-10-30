@@ -3,7 +3,8 @@
 
 See LocalDocReview_TDD.md for the full design. Subcommands:
     serve    <doc.md> [<diagram.mmd> ...] [--port N] [--static [--output PATH] [--open]]
-    comments <doc.md> [--status open|ready|addressed|resolved|all] [--json]
+    comments <doc.md> [--status actionable|open|ready|addressed|resolved|all] [--json]
+                                                   default actionable = open + ready + follow-ups
     reply    <doc.md> <thread_id> "<message>" [--status addressed]
     servers  [--json]                              list running live servers (pid, port, doc)
     stop     [--port N | --pid N | --all]          SIGTERM a live server; no selector = the only one
@@ -29,6 +30,7 @@ QUOTE_TRUNCATE_LENGTH = 60
 MMDC_VALIDATION_TIMEOUT_SECONDS = 30
 SHELL_NAMES = {"bash", "sh", "zsh"}
 LSOF_NAME_LINE = re.compile(r"^n.*:(\d+)$")
+ACTIONABLE_STATUSES = {"open", "ready"}
 
 
 class DiagramValidationError(Exception):
@@ -48,18 +50,27 @@ def cmd_comments(args: argparse.Namespace) -> None:
     doc_path = Path(args.doc)
     base_dir = doc_path.parent
     data = SidecarStore(doc_path).load()
-    threads = data["threads"]
-    if args.status != "all":
-        # A follow-up on an addressed thread keeps that status, so it is selected by any filter.
-        threads = [thread for thread in threads if thread["status"] == args.status or _has_follow_up(thread)]
+    threads = [thread for thread in data["threads"] if _matches_status(thread, args.status)]
+    hidden = len(data["threads"]) - len(threads)
 
     resolved = [_cli_resolved_thread(base_dir, thread) for thread in threads]
     markers = scan_inline_markers(base_dir, _marker_candidate_files(doc_path, data["threads"]))
 
     if args.json:
-        print(json.dumps({"threads": resolved, "inline_markers": markers}, indent=2))
+        print(json.dumps({"threads": resolved, "inline_markers": markers, "hidden": hidden}, indent=2))
     else:
         _print_text(resolved, markers)
+        if hidden:
+            print(f"{hidden} threads hidden by --status {args.status} -- --status all to list them")
+
+
+def _matches_status(thread: Dict, status: str) -> bool:
+    if status == "all":
+        return True
+    if status == "actionable":
+        return thread["status"] in ACTIONABLE_STATUSES or _has_follow_up(thread)
+    # A follow-up on an addressed thread keeps that status, so it is selected by any filter.
+    return thread["status"] == status or _has_follow_up(thread)
 
 
 def cmd_reply(args: argparse.Namespace) -> None:
@@ -260,6 +271,11 @@ def _print_text(resolved: List[Dict], markers: List[Dict]) -> None:
 def _print_last_reply(item: Dict) -> None:
     if not item["replies"]:
         return
+    # The first reply is the comment itself; without it a replied-to thread loses what was asked.
+    first = item["replies"][0]
+    print(f'    comment {first["author"]}: {first["text"]}')
+    if len(item["replies"]) == 1:
+        return
     last = item["replies"][-1]
     follow_up = " (follow-up)" if item["follow_up"] else ""
     print(f'    last reply{follow_up} {last["author"]}: {last["text"]}')
@@ -284,7 +300,7 @@ def main() -> None:
 
     comments_parser = subparsers.add_parser("comments", help="List comment threads resolved to file:line")
     comments_parser.add_argument("doc")
-    comments_parser.add_argument("--status", choices=["open", "ready", "addressed", "resolved", "all"], default="all")
+    comments_parser.add_argument("--status", choices=["actionable", "open", "ready", "addressed", "resolved", "all"], default="actionable")
     comments_parser.add_argument("--json", action="store_true")
     comments_parser.set_defaults(func=cmd_comments)
 

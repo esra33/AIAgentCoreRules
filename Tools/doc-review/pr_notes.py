@@ -7,6 +7,7 @@ is also what makes the Progress tab's mtime move (progress_view.pr_refresh_stamp
 re-render that follows is the one call that refetches.
 """
 import json
+import re
 import subprocess
 import threading
 import time
@@ -18,6 +19,8 @@ GH_TIMEOUT_SECONDS = 20
 
 _cache: Dict[Tuple[str, int], Tuple[int, Dict]] = {}
 _cache_lock = threading.Lock()
+_repo_urls: Dict[str, str] = {}
+GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$")
 
 
 def refresh_window() -> int:
@@ -35,6 +38,18 @@ def fetch_pr_notes(number: int, repo_dir: Path) -> Dict:
     with _cache_lock:
         _cache[key] = (window, pr)
     return pr
+
+
+def pr_url(number: int, repo_dir: Path) -> str:
+    """A PR's GitHub page built from repo_dir's origin remote -- no gh call -- or "" when the remote
+    is not GitHub. The remote is read once per repo_dir."""
+    key = str(repo_dir)
+    if key not in _repo_urls:
+        result = subprocess.run(["git", "remote", "get-url", "origin"], cwd=key, capture_output=True, text=True,
+                                timeout=GH_TIMEOUT_SECONDS, check=False)
+        match = GITHUB_REMOTE.search(result.stdout.strip()) if result.returncode == 0 else None
+        _repo_urls[key] = f"https://github.com/{match.group(1)}" if match else ""
+    return f"{_repo_urls[key]}/pull/{number}" if _repo_urls[key] else ""
 
 
 def _fetch(number: int, repo_dir: Path) -> Dict:

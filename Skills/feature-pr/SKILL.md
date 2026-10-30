@@ -36,4 +36,5 @@ rules:
   - "Never edit a block under 'Gates Passed'."
   - "A PR touching two V-phases is listed under each; ask the engineer before adding the second."
   - "gh failing (not logged in, wrong repo) → report its error line and stop; suggest `! gh auth login`."
+  - "Batch PRs (Phase 4 batched publishing) are created and recorded by /publish-batch; this skill reads and addresses their notes. Fixes are pushed to the batch's own branch, so the same PR updates."
 ```

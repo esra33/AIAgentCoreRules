@@ -1,9 +1,9 @@
 ---
-name: preview-feature
-description: Open a CreateFeature feature's documentation in the local doc-review preview server - a Progress tab (current phase, steps, tasks, next gate) first, then the TDD (or GDD when there is no TDD) and the architecture diagrams. Use when the engineer runs /preview-feature [Name] or asks to see, open or preview a feature's plan status, TDD or diagrams.
+name: start-preview-server
+description: Open a CreateFeature feature's documentation in the local doc-review preview server - a Progress tab (current phase, steps, tasks, next gate) first, then the TDD (or GDD when there is no TDD) and the architecture diagrams. Use when the engineer runs /start-preview-server [Name] or asks to see, open or preview a feature's plan status, TDD or diagrams.
 ---
 
-# Preview Feature
+# Start Preview Server
 
 Read only: opens the docs, never edits them. Run from the project root.
 

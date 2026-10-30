@@ -108,6 +108,7 @@ a one-off edit:
 style_decisions:
   - "Apply it everywhere it fits in the current pass, not only where the comment is anchored."
   - "Propose adding it to the host's doc-conventions file so the next document starts with it. Do not log it as an /iteration."
+  - "For a file/type-change color or list-format decision specifically, start from [[ChangeClassification]] rather than inventing one per feature — propose amending it instead of adding a one-off."
 ```
 
 ## Sync with the local source

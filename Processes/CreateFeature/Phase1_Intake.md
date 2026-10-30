@@ -64,6 +64,16 @@ If there is no GDD and no planning material, skip to 1b and gather information t
 
 Work through each TDD section with the engineer. Do not proceed to the next section until the current one is agreed upon. Fill the TDD as you go.
 
+Record each section's state in the progress file's `tdd_sections:` block as you go — the doc-review
+Progress tab shows it (○ not started, ~ drafting, ✓ approved):
+
+```yaml
+tdd_sections:
+  - "Writing or revising a section in the TDD → `<Section>: drafting` (the '### Section:' name below)."
+  - "The engineer agrees the section → `<Section>: approved`. Never mark a section approved because text is in the TDD."
+  - "A section reverted to a placeholder → remove its entry."
+```
+
 ---
 
 ### Section: Objective
@@ -87,9 +97,32 @@ Ask:
 
 ```yaml
 architecture_checks:
+  - "Before drafting, load the host SystemIndex's SystemPatterns entries that match the feature
+     (e.g. GemEventPattern, PrizeFlowPattern); the TDD is now the main design document, so pattern
+     guidance must apply here, not only in Phase 3."
   - Are the main classes/systems named?
   - Are the data flow and ownership clear?
-  - Note: detailed class design happens in Phase 3 — capture intent here, not implementation.
+  - "Note: the TDD is the feature's only design document. Capture as much as is known here,
+     including diagrams; Phase 3 only fills what is still open after Discovery (File Plan, missing
+     contracts, TBDs left for it) and updates these diagrams rather than drawing new ones."
+  - "If diagrams exist (Diagrams/*.mmd), embed each one inline in this section under its own
+     collapsible <details><summary>Mermaid Diagram: <Name></summary> block holding a fenced
+     ```mermaid``` code block — do not just point to the file path in prose. A reference-only
+     mention is a stale-document artifact of iterating diagrams through the local preview server
+     without folding the result back into the TDD; the document must stay self-contained."
+  - "Validate a diagram locally (see 'Validating a local diagram' in [[ExternalDocPass]]) before
+     embedding it or editing an already-embedded one."
+  - "Replace the template's placeholder bracket text with real prose — no leftover
+     '[Insert architecture diagram...]' once the section has content."
+  - "List every file/type the section names under a 'Files & Types Changed' subsection, classified
+     NEW/MODIFIED/DELETED per [[ChangeClassification]] — three-line summary (Nature, Reason,
+     Implementation) visible, anything deeper in a collapsible block. A type's exact path may still
+     be TBD before Phase 2 Discovery; classify it anyway."
+  - "Any structural diagram (class/component) uses [[ChangeClassification]]'s NEW/MODIFIED/DELETED
+     colors and legend — a process-flow diagram keeps its own separate palette, also defined there."
+  - "Declare a class's actionable methods (what it does); don't assert the specific integration/wiring
+     mechanism (e.g. which type implements a listener interface) unless the engineer has already
+     confirmed it — that's an implementation decision for a later phase."
 ```
 
 ---
@@ -146,7 +179,9 @@ per_stage:
   assignee:          "Name of engineer responsible"
 ```
 
-Populate the task table. Each task row: Title | Task | Assignee | Status (unchecked `[ ]` by default).
+Populate the task table. Each task row: # | Title | Task | Assignee | Status (unchecked `[ ]` by default).
+`#` is the task id — T1, T2 … numbered across the whole plan, never reused or renumbered;
+/publish-batch and the doc-review Progress tab key on it.
 Title is a short, human-readable task name (a few words), ready to become the Jira ticket summary.
 
 Add as many stages as needed. The "Final Touches" stage is always included — see below.
@@ -266,20 +301,34 @@ consistency_checks:
   - Are the BI calls for this feature identified, even if not yet implemented?
 ```
 
-Present findings as a numbered list. Discuss each gap with the engineer until resolved or explicitly deferred with an owner and follow-up date.
+Present findings as a numbered list, each line prepended with a status emoji:
+
+```yaml
+finding_status:
+  "✅": "Passes cleanly — no action needed, listed for completeness."
+  "⚠️": "Passes but needs attention — a real gap or omission, but not necessarily wrong."
+  "❌": "Fails — a real conflict, contradiction, or missing required piece."
+```
+
+For every ⚠️ or ❌ finding, ask the engineer to either:
+- **acknowledge it and continue** — the current state is intentional, no rework needed, or
+- **rework it now** — fix it before moving on to 1d.
+
+Record the outcome next to the finding (`acknowledged` or `reworked`, one line on why). An
+acknowledged ❌ is not silently dropped: log it as an open item at Gate 1 with an owner, the same as
+a TBD. Do not block the gate on an acknowledged item — that is what acknowledging it means.
+
+Carry the finalized list (status emoji + finding + outcome, one string per line) into the Gate 1
+`phase_handoff` block's `consistency_findings` field (see Handoff Format in index.md). The preview
+server's Progress tab renders it as a sub-item under this step once that block is written.
 
 ---
 
 ## Sub-phase 1d — Metrics
 
-Session metrics are already running (SessionStart hook — see MetaRouter Session Lifecycle).
-Make sure the lane and title are recorded:
-
-```bash
-python3 <lifecycle script> set --lane feature --title "<FeatureName>"
-```
-
-Remind the engineer once:
+Session metrics are already running (SessionStart hook — see MetaRouter Session Lifecycle), and the
+lane/title are already set by `/resume-work` or `/feature` before this phase file loads. Remind the
+engineer once:
 - `/inaccuracy <reason>` immediately after correcting an agent mistake.
 - `/iteration <description>` when deliberately changing direction or refining scope.
 - `/end-session` at the end of every working session — each session of this feature gets its own metrics.
@@ -292,16 +341,20 @@ With all TDD sections complete and reviewed, produce the output documents:
 
 **`[FeatureName]_TDD.md`** — fill `../Templates/TDD_Template.md` with all gathered content. Set version to `1.0.0`.
 
-**`[FeatureName]_TaskList.md`** — extract all tasks from all Development Plan stages in order:
+**`[FeatureName]_TaskList.md`** — extract all tasks from all Development Plan stages in order, one line per task:
 
 ```yaml
 task_list_format:
   - stage: "V0 — Core Loop"
     tasks:
-      - title: "Short task name (Jira summary)"
-        task: "Task description"
-        assignee: "Name"
-        status: "[ ]"
+      - {id: T1, status: "[ ]", title: "Short task name (Jira summary)", task: "Task description", assignee: "Name"}
+```
+
+```yaml
+task_list_rules:
+  id:     "T<n>, matching the TDD Development-plan '#' column. Every task has one: /publish-batch names branches feature/<FeatureName>/<id> and stops when a task has no id."
+  order:  "Keep id, status, title first and in that order — progress_view.py parses that one-line form."
+  status: "[ ] todo · [~] partial · [x] done"
 ```
 
 **`[FeatureName]_UseCases.md`** — compile all edge cases from the TDD plus any additional scenarios identified during 1b/1c:
@@ -311,6 +364,24 @@ use_case_format:
   - id: 1
     description: "Scenario description"
     solution: "How it is handled (or TBD)"
+```
+
+---
+
+## Sub-phase 1f — External Publish (optional)
+
+Ask:
+> "Do you want to publish this TDD to Confluence and its architecture diagrams to Miro now?"
+
+```yaml
+if_yes:
+  - "Load [[ExternalDocPass]] and the host's doc-conventions file (e.g. ConfluenceDocs.md) before the first publish of this session — required even if a publish workflow was already set up in an earlier session."
+  - "Publish the TDD to Confluence per ExternalDocPass's Publish pass."
+  - "Push each diagram to its Miro board per 'Diagrams reviewed on a board', in the same pass — never before the Confluence page exists."
+  - "Embed the Miro board/frame links in the Confluence page's 'Architecture Diagrams (Miro)' subsection (see the host's doc-conventions file) on that same pass."
+  - "Record both pages in the progress file's `sources_of_truth` (kind, id, title, version)."
+if_no:
+  - "Skip. The engineer can publish later from any phase via [[ExternalDocPass]] — it is not re-asked automatically."
 ```
 
 ---

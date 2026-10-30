@@ -12,7 +12,7 @@ and svg-pan-zoom load from CDNs in the browser.
 |---|---|
 | `doc_review.py serve <doc.md> [<diagram.mmd>...] [--port N] [--open]` | Live server. One tab per file, live reload on save, in-page comments. Prints the URL |
 | `doc_review.py serve <doc.md> ... --static [--output PATH] [--open]` | Writes a single HTML preview (default `_doc_review_preview.html` next to the doc). No server, no comments |
-| `doc_review.py comments <doc.md> [--status open\|ready\|addressed\|resolved\|all] [--json]` | Lists comment threads resolved to `file:line`, plus inline `@CLAUDE:` markers. Text mode prints each thread's last reply (author and text) under it; `--json` carries `created_by`, the full `replies` list (author, text, at) and `follow_up`. A follow-up (the engineer replied after an agent reply) is selected by every `--status` filter, so a reply on an addressed thread still shows under `--status open` |
+| `doc_review.py comments <doc.md> [--status actionable\|open\|ready\|addressed\|resolved\|all] [--json]` | Lists comment threads resolved to `file:line`, plus inline `@CLAUDE:` markers. The default, `actionable`, lists open and ready threads plus follow-ups and ends with a `N threads hidden` line for the rest; use `--status all` to see every thread. Text mode prints each thread's original comment and, when there are replies, the last one (author and text) under it, so agents rarely need `--json`; `--json` carries `created_by`, the full `replies` list (author, text, at), `follow_up` and the `hidden` count. A follow-up (the engineer replied after an agent reply) is selected by every `--status` filter, so a reply on an addressed thread still shows under `--status open` |
 | `doc_review.py reply <doc.md> <thread_id> "<message>" [--status addressed]` | Adds an agent reply, optionally marking the thread addressed |
 | `doc_review.py servers [--json]` | Lists the running live servers: pid, URL, doc and folder. Only the Python server process, not the shell that launched it |
 | `doc_review.py stop [--port N \| --pid N \| --all]` | Stops a live server (SIGTERM). With no selector it stops the only one running and refuses when there are several. Used by `/kill-server` |
@@ -32,15 +32,17 @@ thread ready for the agent, and the agent replies and marks it addressed. Thread
 ## Progress tab
 
 When the served doc's folder contains a `<Name>_Progress.md` (a CreateFeature feature folder),
-a **Progress** tab is added first, automatically. `/preview-feature <Name>` opens a feature this
+a **Progress** tab is added first, automatically. `/start-preview-server <Name>` opens a feature this
 way, with its TDD and diagrams:
 
 - **Phases and steps.** Phases 1–8 and their gates come from `Processes/CreateFeature/index.md`.
   The steps are the `##` headings of each `Phase*.md` file.
 - **Green ✓.** A phase is complete when the progress file has a gate handoff block for it, and
-  then all its steps are checked. Steps of the current phase are checked when the checkpoint's
-  `done` list mentions them. That match is approximate. A skipped phase stays unchecked even
-  when later phases are done.
+  then all its steps are checked. Steps of the current phase come from the progress file's
+  `step_status:` block (`  1b: in_progress` shows `~`, `done` shows ✓), which the agent updates
+  as it starts and finishes each step. Keys are the step's key (`1b`, `Step 3`) or its title.
+  Without that block, a step is checked when the checkpoint's `done` list mentions it — an
+  approximate match. A skipped phase stays unchecked even when later phases are done.
 - **Development phases.** Each `### V<n> — …` heading under the TDD's `## Development plan`
   is listed under Phase 4 with two collapsibles. **Tasks** lists the rows of that phase's table
   as done (✓), partial (~) or not started (○), labelled by the Title column (else Task) with
@@ -52,14 +54,31 @@ way, with its TDD and diagrams:
 - **Task list.** When the TDD has no V-phases, tasks in `<Name>_TaskList.md` are listed under
   Phase 4 instead. Both task forms are read: the one-line `- {id:, status:, title:}` form and
   the multi-line `- task: "<text>"` form with an indented `status: "[x]"` line (no id).
+- **Batches.** When `/publish-batch` has planned a task's batches, the task shows a
+  `batch N of M` pill (N = `merged` + 1, M = the number of `plan` titles). The pill links the
+  batch's `open_pr` on GitHub, and hovering it shows the batch title. After the last batch
+  merges it reads `batches done`. The task is matched by id: the TDD table's `#` column, or the
+  task list's `{id:}`. TDD rows without a `#` column and multi-line task-list entries have no
+  id, so they never show a batch.
+- **TDD sections.** Phase 1's "Sub-phase 1b" step lists each `### Section: <Name>` heading of
+  `Phase1_Intake.md` as a checklist. The progress file's `tdd_sections:` block sets each one:
+  `drafting` (written, not yet agreed) shows `~`, `approved` (the engineer agreed it) shows ✓,
+  anything unlisted shows ○. Without that block the tab guesses: a section is checked when the
+  TDD has a matching heading (case, punctuation and `[Optional…]` ignored; a prefix such as
+  `## Development plan` also matches) whose body differs from the same section in
+  `Templates/TDD_Template.md` and is not only `[…]` placeholders such as `[TBD]`. Once Phase 1's
+  handoff block is written, every section is checked.
+- **Consistency findings.** Once the Gate 1 handoff block is written, its
+  `consistency_findings` list (Sub-phase 1c's findings, each tagged ✅/⚠️/❌ with its outcome)
+  is shown as a nested list under Phase 1's "Sub-phase 1c" step. Before that, or when the list
+  is empty, the step shows nothing extra.
 - **Current phase.** Highlighted in blue.
 - **Gate to pass next, in red.** This is the current phase's gate until its handoff block is
   written, then the next unfinished phase's.
 
-The tab refreshes whenever the progress file, the task list, the TDD or a CreateFeature phase
-file changes, and every 5 minutes while PRs are linked. Static mode includes the tab without refreshing.
+The tab refreshes whenever the progress file, the task list, the TDD, the TDD template or a
+CreateFeature phase file changes, and every 5 minutes while PRs are linked. Static mode includes the tab without refreshing.
 
-<<<<<<< Updated upstream
 ## Performance tab
 
 When the project has tracked sessions (`GitIgnoreReports/Sessions/`, or `$SESSION_REPORTS_ROOT`),
@@ -83,7 +102,15 @@ breakdown: the same estimated token-by-category numbers the retrospective charts
 Sessions without a compiled breakdown are listed but left out of the statistics. The tab
 refreshes whenever a `session.json` changes; the active session is as fresh as its last compile
 (the Stop hook recompiles after replies).
-=======
+
+**Feature scope.** Served from a feature folder (one with `<Name>_Progress.md`), the tab opens on
+that feature's sessions, with a **<Feature> / All sessions** toggle. A session belongs to the
+feature when its `session.json` is tagged with it — `session_lifecycle.py set --feature <Name>`,
+which /feature and /resume-work pass, and /small-task, /bug-fix and /run-investigation-mode pass
+when the work is for an in-progress feature — or when its folder is listed under `sessions:` in
+the Progress file (matched by the id8 suffix). To add a past session, run
+`set --session-id <id> --feature <Name>`. The tab also refreshes when the Progress file changes.
+
 ## Mermaid syntax and validation
 
 When preparing diagrams for this preview, avoid literal semicolons in sequence-diagram
@@ -91,7 +118,6 @@ message text: Mermaid treats them as statement separators. Use commas, or encode
 intentional semicolon as `#59;`. Validate diagrams with an available Mermaid renderer before
 claiming they render successfully. If renderer tooling or browser inspection is unavailable,
 report that limitation explicitly and request an engineer rendering check.
->>>>>>> Stashed changes
 
 ## Tests
 

@@ -35,12 +35,36 @@ run. Present each file to the engineer after writing it. Do not move to the next
 current one is acknowledged.
 
 After each acknowledgment, update the progress file's Checkpoint: add the file to `done`, marked
-`(audited)`, and set `next` to the following file from the design. Implementation is where a session most often
+`(audited)`, and set `next` to the following file from the TDD's File Plan. Implementation is where a session most often
 ends mid-phase.
 
 When a PR opens for one of the TDD's V-phases, run `/feature-pr <PR>`: it lists the PR under
 `pull_requests` in the progress file, so the doc-review Progress tab shows its review notes, and
 records each addressed note in this feature's Checkpoint.
+
+---
+
+## Batched Publishing
+
+C# and related files (`.cs`, `.asmdef`, generated parsers, config JSON) are published per task
+in small batches, so the engineer reviews a few files at a time instead of the whole task.
+Python tools, Markdown and agent metadata are exempt.
+
+```yaml
+batched_publishing:
+  start_task:  "/publish-batch plan — a worktree and branch per task (feature/<FeatureName>/<task_id>, from the engineer's user branch) and a batch plan the engineer approves."
+  per_batch:
+    - "Write the batch's files with the Per-File Checklist above; /audit each one. typecheck.py passes."
+    - "/publish-batch publish — commit, push, open a PR against the user branch, and output the change table (Change | File · Type | What changed | Why) for every file added, modified or removed."
+    - "The engineer reviews on GitHub and runs the notes by the agent through /feature-pr <PR>; fixes are pushed to the same PR."
+    - "/publish-batch status — once the PR is merged, the batch is complete; the branch syncs with the user branch and the next batch starts."
+  end_task:    "/publish-batch finish — after the last batch merged, the task's worktree is removed."
+  acknowledgment: "A merged batch PR is the per-file acknowledgment for every file in it: add those files to the Checkpoint `done`, marked (audited)."
+  one_at_a_time: "One open batch PR per task; the next batch is not published until the current one is merged."
+```
+
+The progress file's `batches:` block records each task's plan and how many batches merged —
+batch N of M, where N = merged + 1 and M = the plan's length.
 
 ---
 

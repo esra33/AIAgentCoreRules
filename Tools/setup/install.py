@@ -188,6 +188,24 @@ def install_skills(root, layers, dry_run, log, agent="claude"):
             if not dry_run:
                 os.makedirs(skills_dir, exist_ok=True)
                 os.symlink(target, link)
+    prune_stale_skills(skills_dir, layers, dry_run, log)
+
+
+def prune_stale_skills(skills_dir, layers, dry_run, log):
+    """Remove dangling links into a layer's Skills/ folder, left behind by a renamed or deleted skill."""
+    if not os.path.isdir(skills_dir):
+        return
+    layer_skill_dirs = {os.path.normpath(os.path.join(path, "Skills")) for _, path in layers}
+    for name in sorted(os.listdir(skills_dir)):
+        link = os.path.join(skills_dir, name)
+        if not os.path.islink(link) or os.path.exists(link):
+            continue
+        target = os.path.normpath(os.path.join(skills_dir, os.readlink(link)))
+        if os.path.dirname(target) not in layer_skill_dirs:
+            continue
+        log.append(f"skills: prune stale {name} (target {os.readlink(link)} is gone)")
+        if not dry_run:
+            os.unlink(link)
 
 
 def install_claude_md(root, dry_run, log, imports=CORE_IMPORTS):

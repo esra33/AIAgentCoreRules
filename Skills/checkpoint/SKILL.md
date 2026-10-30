@@ -22,6 +22,7 @@ steps:
   - "  pending_decisions: questions waiting on the engineer"
   - "  context_notes:     facts learned this phase that are not in any artifact yet (file:line where possible); include the rest of $ARGUMENTS as a note"
   - "Update current_phase, status, updated_at and artifacts in the header block."
+  - "Sync `step_status:` (current phase's steps: in_progress | done) and, in Sub-phase 1b, `tdd_sections:` (drafting | approved) with the Checkpoint — they drive the doc-review Progress tab. Add either block after `batches:` if missing."
   - "Update sources_of_truth: the version of each external document (e.g. Confluence TDD) as last read this session; add any new one the phase started working from."
   - "Reply with one line: the progress file path and the `next` action."
 ```

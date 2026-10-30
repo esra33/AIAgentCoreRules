@@ -14,7 +14,7 @@ For Magic Match 3D the host layer is **TripleMatchAiMetaData** — see its own d
 | **Project rules** (always loaded) | Project-wide conventions the core rules cannot know: logging wrapper setup, release-build guards, config loading, forbidden file types | Every process, `/audit` |
 | **SystemIndex** (always loaded) | A router for project knowledge: maps task phrases to the right Systems or SystemPatterns doc | Discovery in every process |
 | **Systems/** | One overview per game system: responsibility, key interfaces, entry point, integration points, **common gotchas** | Bug Fix step 2, Small Task step 2, Create Feature Phase 2, `/discover` |
-| **SystemPatterns/** | Step-by-step guides for building a feature in a system | Create Feature Phase 3, Small Task step 2 |
+| **SystemPatterns/** | Step-by-step guides for building a feature in a system | When writing the TDD Architecture (Create Feature Phase 1) and in the Phase 3 design delta, Small Task step 2 |
 | **Testing setup** | Project test infrastructure: container setup, test doubles, assertion helpers | Bug Fix step 6, Create Feature Phase 5 |
 | **Runnable tools** | Scripts that verify work or answer structural questions without reading files | See below |
 | **Project skills** | Extra slash commands wrapping the Runnable tools | Optional |

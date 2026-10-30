@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 TOOL_DIR = Path(__file__).resolve().parents[1]
@@ -37,6 +38,24 @@ def run_comments(doc_path: Path, status: str = "all") -> dict:
     with contextlib.redirect_stdout(out):
         cmd_comments(args)
     return json.loads(out.getvalue())
+
+
+def run_comments_text(doc_path: Path, status: str) -> str:
+    args = argparse.Namespace(doc=str(doc_path), status=status, json=False)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        cmd_comments(args)
+    return out.getvalue()
+
+
+def doc_review_parser_status_default() -> str:
+    # main() builds the parser inline; parse a real argv through it without dispatching.
+    captured = {}
+    capture = lambda args: captured.setdefault("status", args.status)  # noqa: E731
+    with unittest.mock.patch.object(doc_review, "cmd_comments", capture), \
+            unittest.mock.patch.object(sys, "argv", ["doc_review.py", "comments", "Design.md"]):
+        doc_review.main()
+    return captured["status"]
 
 
 def line_of(text: str) -> int:
@@ -125,6 +144,74 @@ class CommentsReadyFilterTests(unittest.TestCase):
             cmd_comments(args)
 
         self.assertIn("last reply (follow-up) engineer: one more thing", out.getvalue())
+
+    def test_comments_textMode_printsOriginalCommentBeforeLastReply(self):
+        quote = "The quick brown fox jumps over the lazy dog."
+        thread_id = self.add(quote, "open")
+        self.store.add_reply(thread_id, "agent", "done")
+        text = run_comments_text(self.doc_path, status="all")
+
+        self.assertIn("comment engineer: comment on: " + quote, text,
+                      "the original ask must stay visible once the thread has replies")
+        self.assertLess(text.index("comment engineer:"), text.index("last reply agent: done"))
+
+    def test_comments_textMode_singleComment_printsNoSeparateLastReply(self):
+        self.add("The quick brown fox jumps over the lazy dog.", "open")
+
+        text = run_comments_text(self.doc_path, status="all")
+
+        self.assertNotIn("last reply", text, "a lone comment is not repeated as its own last reply")
+
+
+class CommentsActionableDefaultTests(unittest.TestCase):
+    """The default filter lists only threads that still need the agent."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="cli-behavior-actionable-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.doc_path = self.tmp / "Design.md"
+        self.doc_path.write_text(DOC_CONTENT)
+        self.store = SidecarStore(self.doc_path)
+
+    def add(self, quote: str, status: str) -> str:
+        thread_id = self.store.add_thread({"kind": "text", "file": self.doc_path.name, "quote": quote}, "engineer", "c")
+        if status != "open":
+            self.store.set_status(thread_id, status, "engineer" if status != "addressed" else "agent")
+        return thread_id
+
+    def test_comments_parserDefault_isActionable(self):
+        self.assertEqual(doc_review_parser_status_default(), "actionable",
+                         "a bare `comments <doc>` must list only what still needs the agent")
+
+    def test_comments_actionable_listsOpenReadyAndFollowUps_hidesAddressedAndResolved(self):
+        open_id = self.add("The quick brown fox jumps over the lazy dog.", "open")
+        ready_id = self.add("Another distinct sentence lives here for testing purposes.", "ready")
+        follow_up_id = self.add("## Section Two", "open")
+        self.store.add_reply(follow_up_id, "agent", "fixed")
+        self.store.set_status(follow_up_id, "addressed", "agent")
+        self.store.add_reply(follow_up_id, "engineer", "not quite")
+        self.add("# Design", "addressed")
+        resolved_id = self.add("The quick brown fox jumps over the lazy dog.", "open")
+        self.store.set_status(resolved_id, "resolved", "engineer")
+
+        result = run_comments(self.doc_path, status="actionable")
+
+        self.assertEqual(sorted(t["id"] for t in result["threads"]), sorted([open_id, ready_id, follow_up_id]))
+        self.assertEqual(result["hidden"], 2, "the addressed and resolved threads are counted, not listed")
+
+    def test_comments_textMode_withHiddenThreads_printsHiddenCountLine(self):
+        self.add("The quick brown fox jumps over the lazy dog.", "open")
+        resolved_id = self.add("## Section Two", "open")
+        self.store.set_status(resolved_id, "resolved", "engineer")
+
+        text = run_comments_text(self.doc_path, status="actionable")
+
+        self.assertIn("1 threads hidden by --status actionable -- --status all to list them", text)
+
+    def test_comments_textMode_nothingHidden_printsNoHiddenLine(self):
+        self.add("The quick brown fox jumps over the lazy dog.", "open")
+
+        self.assertNotIn("hidden", run_comments_text(self.doc_path, status="actionable"))
 
 
 class InlineMarkerTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 ---
 name: kill-server
-description: Stop a running doc-review preview server (started by /preview-feature or doc_review.py serve) - lists the live servers with pid, port, doc and folder, and stops the one chosen, or all of them. Use when the engineer runs /kill-server [port|pid|all] or asks to stop, kill or shut down the preview / doc-review server.
+description: Stop a running doc-review preview server (started by /start-preview-server or doc_review.py serve) - lists the live servers with pid, port, doc and folder, and stops the one chosen, or all of them. Use when the engineer runs /kill-server [port|pid|all] or asks to stop, kill or shut down the preview / doc-review server.
 argument-hint: "[port | pid <n> | all]"
 ---
 

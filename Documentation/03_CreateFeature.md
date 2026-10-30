@@ -14,13 +14,17 @@ personal, git-ignored path set in `CreateFeature/index.md`):
 ```
 Assets/GitIgnoreAssets/Features/<FeatureName>/
   <FeatureName>_GDD.md           AI-friendly copy of the source GDD
-  <FeatureName>_TDD.md           Technical design document
+  <FeatureName>_TDD.md           Technical design document — the only design doc; Phase 3 updates it
   <FeatureName>_TaskList.md      Ordered tasks from the development plan
   <FeatureName>_UseCases.md      Use cases and edge cases
   <FeatureName>_Discovery.md     Approved discovery report
-  <FeatureName>_Architecture.md  Approved class and sequence diagrams
+  Diagrams/*.mmd                 Diagram sources, embedded in the TDD
   <FeatureName>_Progress.md      Resume state: gates passed and the current checkpoint
 ```
+
+Each task in the task list is one line with an id that matches the TDD development plan's `#`
+column — `- {id: T1, status: "[ ]", title: "..."}`. The preview's Progress tab parses that form,
+and `/publish-batch` names a task's branch after its id, so it stops on a task without one.
 
 ## The phases
 
@@ -28,12 +32,17 @@ Assets/GitIgnoreAssets/Features/<FeatureName>/
 |---|---|---|---|
 | 1 | **Intake** | Convert the GDD into a TDD, task list, use cases and edge cases | All documents reviewed and approved; every TBD item has an owner |
 | 2 | **Discovery** | Load rules, explore the codebase, confirm every dependency is visible | Discovery report approved, with no missing source files |
-| 3 | **Design** | Propose architecture, class structure, public contracts, integration points and diagrams | Design explicitly approved — **no code is written before this gate** |
+| 3 | **Design** | Reconcile the TDD with Discovery: file plan, missing contracts, TBDs left for Phase 3, corrections — written back into the TDD | Design delta approved, or confirmed empty — **no code is written before this gate** |
 | 4 | **Implementation** | Write code file by file | Every file written, audited and acknowledged by the engineer |
 | 5 | **Unit Tests** | JSON deserialization, behavior and boundary tests traced to the use cases | All tests passing; deferred cases logged as follow-up tasks |
 | 6 | **Integration** | Wire into factories, registries and manifests; run generators | Project compiles; every integration step confirmed |
 | 7 | **Verification** | Final rules-compliance pass across every file | Engineer confirms the feature is complete |
 | 8 | **Retrospective** | Find discovery gaps, missing patterns, gotchas and process gaps; apply approved improvements | Every approved change written and confirmed |
+
+Renaming or renumbering a phase is not a one-file change: `progress_view.py` parses phase keys,
+step headings (`Step N —`, `Sub-phase Na`) and `phase_completed: "Phase N"` gates, its tests carry
+fixtures of them, Phase 8 has `phase_N_<name>` keys, and in-flight progress files store
+`current_phase`. The `consumers:` block in the process index lists them all.
 
 ### Phase 1 — Intake
 
@@ -49,7 +58,32 @@ Assets/GitIgnoreAssets/Features/<FeatureName>/
   OTA-configurable content), notes and future work. Each section is agreed with the engineer
   before moving on. The data reconciliation strategy cannot be left blank; if it is undecided it
   is marked TBD and logged as an open item.
-- **1c consistency and gap review**, **1d metrics**, **1e document generation**.
+  Before the Architecture section is drafted, the host SystemIndex's SystemPatterns entries that
+  match the feature (e.g. GemEventPattern, PrizeFlowPattern) are loaded: the TDD is now the main
+  design document, so pattern guidance applies here, not only in Phase 3.
+  The Architecture section embeds each `Diagrams/*.mmd` diagram inline, each in its own
+  collapsible `<details><summary>Mermaid Diagram: <Name></summary>` block holding a fenced
+  `mermaid` code block, so the TDD stays self-contained — a path mentioned in prose is not enough.
+  Diagrams are validated locally before they are embedded or edited, and the template's
+  placeholder text is replaced once the section has content (see [[TDD_Template]]).
+  A class is described by its actionable methods (what it does); the wiring mechanism (e.g. which
+  type implements a listener interface) is left to a later phase unless the engineer has already
+  confirmed it.
+- **1c consistency and gap review** — findings are a numbered list, each tagged ✅ (passes),
+  ⚠️ (passes but needs attention) or ❌ (fails). For every ⚠️ or ❌ the engineer chooses to
+  **acknowledge and continue** or **rework now**, and the outcome is recorded beside the finding.
+  An acknowledged ❌ is logged as a Gate 1 open item with an owner; it does not block the gate.
+  The final list goes into the Gate 1 handoff's `consistency_findings` field, and the doc-review
+  [[12_DocReview#Progress tab|Progress tab]] shows it under the 1c step.
+- **1d metrics** — a one-time reminder of `/inaccuracy`, `/iteration` and `/end-session`. The
+  lane and title are already set by `/feature` or `/resume-work`, so this step no longer sets them.
+- **1e document generation**.
+- **1f external publish (optional)** — the agent asks whether to publish the TDD to Confluence
+  and its diagrams to Miro now. If yes, it loads [[ExternalDocPass|External Doc Pass]] and the
+  host's doc-conventions file, publishes the TDD, pushes each diagram to its Miro board in the
+  same pass (never before the Confluence page exists), embeds the board links in the page's
+  "Architecture Diagrams (Miro)" subsection, and records both pages in the progress file's
+  `sources_of_truth`. If no, it is not asked again; publishing can happen later from any phase.
 - **Pre-publish sweep** — before publishing, every decision changed in the session is grepped
   for across the TDD and its diagram sources, and earlier confirmed sections that contradict it are
   fixed (real design conflicts go to the engineer).
@@ -80,9 +114,17 @@ and **missing source** — a non-empty missing-source list blocks the gate.
 
 ### Phase 3 — Design
 
-A structural proposal (new and modified files, class structure, public contracts, integration
-steps, open questions), followed by two Mermaid diagrams: a class diagram and a sequence
-diagram. The engineer reviews and edits both before approving.
+A design delta, not a second design. The TDD is written in Phase 1, before Discovery reads the
+code, so this phase checks it against the Discovery report and fills only what is still open:
+a **File Plan** (task id, path, new/modified, responsibility) that Phase 4 works through, public
+contracts the TDD left out, a decision for every TBD left for Phase 3, and corrections where the
+code contradicts the TDD. A skip check comes first: when the TDD already covers all of that, the
+gate is a short confirmation and can close at the end of the Phase 2 session.
+
+Everything approved is written back into the TDD (version bump and Versions row), with the task
+list and use cases updated when a decision changes them. There is no separate
+`_Architecture.md` and no new diagrams: if the architecture changes, the existing `Diagrams/*.mmd`
+sources and their embedded copies in the TDD are updated and re-validated.
 
 ### Phase 4 — Implementation
 
@@ -92,6 +134,16 @@ re-reads the rule files, because Phase 2 may be several sessions ago. Every file
 checkpoint); the next file is not started until the current one is acknowledged. Before writing
 a test file, the agent reads `Rules/TestingRules.md` (and the host project's testing-setup rule,
 if it has one); the coding standards and architectural principles do not cover tests. For files with poll handlers, event listeners, or subscription-based updates: verification includes steady-state behavior (state unchanged across multiple ticks with no data change), not just post-action snapshots.
+
+**Batched publishing.** C# and related files are reviewed as small pull requests rather than in
+one large diff. Python tools and Markdown are exempt. Each task gets its own worktree and branch
+(`feature/<Name>/<task>`), cut from the engineer's user branch, and the engineer approves a plan
+that splits it into batches. Each batch is one concern, roughly ≤ 300 lines and ≤ 5 files.
+`/publish-batch` commits and pushes each batch, opens a PR against the user branch, and prints
+a table of every file added, modified or removed: its types, what changed and why. The engineer
+reviews on GitHub and runs the notes through `/feature-pr`. Merging the PR completes the batch
+and counts as the acknowledgment of its files, and only then does the next batch start. The
+progress file's `batches:` block records batch N of M for each task.
 
 ### Phase 5 — Unit Tests
 
@@ -142,6 +194,7 @@ phase_handoff:
   key_decisions:     []
   carry_forward:     []   # what the next phase needs
   open_items:        []   # deferred or unresolved
+  consistency_findings: []  # Phase 1 only — 1c's ✅/⚠️/❌ findings with their outcome
 ```
 
 This block is appended to the feature's progress file **before** the session closes.
@@ -171,8 +224,16 @@ being summarised. The progress file (`<FeatureName>_Progress.md`) does.
 | `/feature <Name>` | File created from the template; the session is added to its session list |
 | Every gate | The handoff block is appended; the current phase advances; the checkpoint is cleared; the session closes with a phase retro |
 | Each approved file in Phase 4 | The file is added to the checkpoint's `done` list and `next` is set |
+| `/publish-batch` in Phase 4 | The task's `batches:` entry is written (plan, merged count, open PR); each PR is also listed under `pull_requests`; a merged batch adds its files to `done` |
+| Each step started or acknowledged | `step_status:` records the current phase's steps as `in_progress` or `done`; in Sub-phase 1b, `tdd_sections:` records each TDD section as `drafting` or `approved`. The doc-review Progress tab shows these |
 | `/checkpoint` | The checkpoint is replaced: done, in flight, next action, pending decisions, notes |
 | `/end-session` mid-phase | `/checkpoint` runs automatically first |
+| `/close-feature <Name> [reason]` | Status set to the picked closing status — `abandoned` (default), `superseded`, `on_hold` or `complete` — and an entry appended to the `Closed` history section; checkpoint and gate blocks are kept. The feature drops off `/active-features` |
+| `/reopen-feature <Name>` | Status returned to `in_progress` from `abandoned`, `superseded` or `on_hold` (never from `complete`) and a reopen entry appended; `/resume-work` then continues from the kept checkpoint |
+
+All state the agent writes about a feature (`batches`, `pull_requests`, `step_status`,
+`tdd_sections`) is kept as top-level blocks in the progress file's header, not in separate
+files. A missing block is added just before the header's closing fence.
 
 To continue in a new session, run **`/resume-work <FeatureName>`**. The agent:
 

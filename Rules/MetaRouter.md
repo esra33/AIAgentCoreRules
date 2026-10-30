@@ -140,6 +140,7 @@ routing:
   async_flows_queues_sequences:   [./MultyStepOperationsRules.md]
   write_or_modify_tests:          [./TestingRules.md]
   resource_management:            [./ResourceManagementRules.md]
+  classify_files_changed:         [./ChangeClassification.md]   # TDD Architecture file/type list · File Plan · NEW/MODIFIED/DELETED diagram colors
   refactor_or_review:             [./CodingStandards.md, ./ArchitecturalPrinciples.md]
   new_feature_multi_system:       [./CodingStandards.md, ./ArchitecturalPrinciples.md, ./MultyStepOperationsRules.md]
 ```
@@ -176,8 +177,9 @@ commands:   # skills in ../Skills/ (project-specific ones in the host metadata r
   /active-features: "list features not yet complete: phase, status, next step, resume command"
   /close-feature <Name> [reason]: "close / force-terminate a feature: status picker (abandoned default, superseded, on_hold, complete) + reason in its progress file"
   /reopen-feature [Name]: "return a closed (not complete) feature to in_progress; no name → choose from features --closed"
-  /preview-feature [Name]: "open a feature in the doc-review preview: Progress tab, TDD, diagrams"
+  /start-preview-server [Name]: "open a feature in the doc-review preview: Progress tab, TDD, diagrams"
   /feature-pr <PR> [Name] [V-phase]: "tie a PR to a feature's V-phase in its progress file, read its review notes, record addressed ones there"
+  /publish-batch [plan|publish|status|finish]: "Phase 4: publish a task's C# in small batch PRs against the user branch, one at a time; change table per batch; next batch after merge"
   /kill-server [port|pid|all]: "stop a running doc-review preview server"
   /discover <area>: "subagent survey, returns a compact map"
   /audit [files]:  "rules compliance check, report only"

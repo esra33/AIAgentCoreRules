@@ -24,8 +24,10 @@ python3 $S prepare-worktree <path>     # add the symlinks to a worktree made by 
 
 Layers are the entries of `GitIgnoredExternals/`; AIAgentCoreRules is applied first. Merge rules:
 objects merge key by key, lists of plain values are unioned, other values are set, and hooks are
-matched by command — an existing hook with the same command is left alone. Nothing is deleted:
-a skill link that points elsewhere is reported as a conflict and kept.
+matched by command — an existing hook with the same command is left alone. Nothing else is deleted:
+a skill link that points elsewhere is reported as a conflict and kept. The one exception is a
+dangling skill link into a layer's `Skills/` folder (a renamed or deleted skill): it is reported
+as `skills: prune stale <name>` and removed (`check` only reports it).
 
 
 ## Codex setup

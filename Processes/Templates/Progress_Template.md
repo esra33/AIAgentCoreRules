@@ -15,6 +15,19 @@ sources_of_truth: []                # documents edited outside this folder, with
                                     # /resume-work compares versions; update the version at every /checkpoint and gate
 pull_requests:                      # Phase 4: PR numbers per TDD V-phase; the doc-review Progress tab shows their comments, e.g.
                                     #   V0: [9923, 9930]
+batches:                            # Phase 4: per task id, written by /publish-batch; batch <merged + 1> of <len(plan)> is current, e.g.
+                                    #   T3:
+                                    #     branch:  "feature/[FeatureName]/T3"
+                                    #     base:    "user/<engineer>/<branch>"
+                                    #     plan:    ["IFooService + data types", "FooManager + tests", "Registration glue"]
+                                    #     merged:  1
+                                    #     open_pr: 9941
+                                    #     prs:     [9930, 9941]
+step_status:                        # current phase's steps by key (1a, Step 3, Category 2): in_progress | done; reset when a phase starts
+                                    #   1b: in_progress
+tdd_sections:                       # Sub-phase 1b: TDD section → drafting (written, not yet agreed) | approved (engineer agreed)
+                                    #   Objective: approved
+                                    #   Architecture: drafting
 ```
 
 ---

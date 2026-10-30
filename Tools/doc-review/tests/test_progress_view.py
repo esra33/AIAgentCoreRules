@@ -9,6 +9,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 TOOL_DIR = Path(__file__).resolve().parents[1]
@@ -44,8 +45,11 @@ phases:
 """
 
 PHASE_FILES = {
-    "Phase1_Intake.md": "## apply: on-demand\n## Sub-phase 1a — GDD Conversion\n### Section: Objective\n"
-                        "## Sub-phase 1b — TDD Section-by-Section\n## Gate 1 — Intake Complete\n"
+    "Phase1_Intake.md": "## apply: on-demand\n## Sub-phase 1a — GDD Conversion\n"
+                        "## Sub-phase 1b — TDD Section-by-Section\n### Section: Objective\n### Section: Architecture\n"
+                        "### Section: Development Plan — Stage Levels\n### Section: Edge Cases\n"
+                        "## Sub-phase 1c — Consistency and Gap Review\n"
+                        "## Gate 1 — Intake Complete\n"
                         "## Router check (used by /end-session)\n",
     "Phase2_Discovery.md": "## Load Rules\n## Explore the Codebase\n## Gate 2 — Discovery Report\n",
     "Phase3_Design.md": "## Step 1 — Design Proposal\n## Step 2 — Architecture Diagrams\n## Gate 3 — Design Approved\n",
@@ -133,14 +137,83 @@ Intro paragraph.
 | Not a task | [ ] |
 """
 
+BATCHES_TDD_MD = """## Development Plan
+
+### V0 — Core
+
+| # | Title | Status |
+| --- | --- | --- |
+| T1 | Contracts | [x] |
+| T2 | Router | [~] |
+| T3 | Untouched | [ ] |
+"""
+
+BATCHES_YAML = """batches:                 # Phase 4: per task id, written by /publish-batch
+                         #   T9:
+                         #     plan: ["commented out"]
+  T1:
+    branch:  "feature/Demo/T1"
+    plan:    ["Contracts", "Tests"]
+    merged:  2
+    open_pr: null
+    prs:     [21, 22]
+  T2:
+    branch:  "feature/Demo/T2"
+    base:    "user/me/demo"
+    plan:    ["Router interface", 'Router impl', "Glue"]
+    merged:  1
+    open_pr: 31
+    prs:     [30, 31]
+  1:
+    plan:    ["Only batch"]
+    merged:  0
+    open_pr: null
+next_field: "not part of the block"
+"""
+
+TEMPLATE_TDD_MD = """# Technical Design Document — [Feature Name]
+
+## Objective
+[Insert summary of the system]
+
+## Development plan
+
+### Stage Level (ie V0, V1 …)
+| # | Title |
+| --- | --- |
+| T1 | Sample task |
+
+## Edge Cases [Optional]
+| 1 | Sample edge case | |
+"""
+
+SECTIONS_TDD_MD = """# Demo TDD
+
+## Objective
+Saves the round so a crash resumes it.
+
+## Development Plan — Stage Levels
+### V0 — Core
+| # | Title |
+| --- | --- |
+| T1 | Contracts |
+
+## Edge Cases
+| 1 | Sample edge case | |
+"""
+
 PULL_REQUESTS_YAML = """pull_requests:
   V0: [11, 12]
   V7: [99]
 """
 
 
-def _gate_block(label):
-    return f'```yaml\nphase_handoff:\n  phase_completed:   "{label}"\n  open_items: []\n```\n'
+def _gate_block(label, findings=()):
+    findings_yaml = ""
+    if findings:
+        items = "\n".join(f'    - "{finding}"' for finding in findings)
+        findings_yaml = f"\n  consistency_findings:\n{items}"
+    return f'```yaml\nphase_handoff:\n  phase_completed:   "{label}"\n  open_items: []{findings_yaml}\n```\n'
 
 
 class ProgressViewTestBase(unittest.TestCase):
@@ -162,7 +235,8 @@ class ProgressViewTestBase(unittest.TestCase):
 
     def write_progress(self, current, done=(), gates=()):
         done_text = "\n".join(f'    - "{item}"' for item in done)
-        text = PROGRESS_MD.format(current=current, done=done_text, gates="\n".join(_gate_block(g) for g in gates))
+        gate_blocks = [_gate_block(*g) if isinstance(g, tuple) else _gate_block(g) for g in gates]
+        text = PROGRESS_MD.format(current=current, done=done_text, gates="\n".join(gate_blocks))
         text = text.replace("  done:\n\n", "  done: []\n")  # no items -> the template's "done: []" form
         self.progress_path.write_text(text)
 
@@ -184,7 +258,8 @@ class BuildModelTests(ProgressViewTestBase):
     def test_steps_skip_apply_gate_router_and_subsections(self):
         self.write_progress("1_intake")
         titles = [s["title"] for s in self.phase(self.model(), "1_intake")["steps"]]
-        self.assertEqual(titles, ["Sub-phase 1a — GDD Conversion", "Sub-phase 1b — TDD Section-by-Section"])
+        self.assertEqual(titles, ["Sub-phase 1a — GDD Conversion", "Sub-phase 1b — TDD Section-by-Section",
+                                   "Sub-phase 1c — Consistency and Gap Review"])
 
     def test_completed_phases_are_those_with_a_handoff_block_and_all_their_steps_are_done(self):
         self.write_progress("3_design", gates=["Phase 1 — Intake", "Phase 2 — Discovery"])
@@ -270,16 +345,154 @@ class BuildModelTests(ProgressViewTestBase):
         self.assertEqual([[pr["number"] for pr in d["pull_requests"]] for d in dev_phases], [[11, 12], []])
         self.assertEqual({repo_dir for _, repo_dir in calls}, {self.feature_dir})
 
+    def write_batches(self):
+        self.write_progress("4_implementation")
+        self.progress_path.write_text(self.progress_path.read_text() + "\n```yaml\n" + BATCHES_YAML + "```\n")
+
+    def test_batches_show_batch_n_of_m_on_the_matching_tdd_task(self):
+        self.write_batches()
+        self.doc_path.write_text(BATCHES_TDD_MD)
+        model = build_model(self.progress_path, self.process_dir, pr_url=lambda n, d: f"https://gh/pull/{n}")
+        tasks = self.phase(model, "4_implementation")["dev_phases"][0]["tasks"]
+        self.assertEqual(tasks[1]["batch"], {"current": 2, "total": 3, "done": False, "title": "Router impl",
+                                             "open_pr": 31, "open_pr_url": "https://gh/pull/31"})
+        self.assertIsNone(tasks[2]["batch"])
+
+    def test_batches_are_done_when_every_planned_batch_merged(self):
+        self.write_batches()
+        self.doc_path.write_text(BATCHES_TDD_MD)
+        task = self.phase(self.model(), "4_implementation")["dev_phases"][0]["tasks"][0]
+        self.assertEqual(task["batch"], {"current": 2, "total": 2, "done": True, "title": "",
+                                         "open_pr": None, "open_pr_url": ""})
+
+    def test_batches_attach_to_task_list_ids_and_ignore_comment_lines(self):
+        self.write_batches()
+        (self.feature_dir / "Demo_TaskList.md").write_text(TASK_LIST_MD)
+        tasks = self.phase(self.model(), "4_implementation")["stages"][0]["tasks"]
+        self.assertEqual(tasks[0]["batch"]["title"], "Only batch")
+        self.assertEqual((tasks[0]["batch"]["current"], tasks[0]["batch"]["total"]), (1, 1))
+        self.assertEqual([t["batch"] for t in tasks[1:]], [None, None])
+
+    def test_no_batches_block_leaves_every_task_without_a_batch(self):
+        self.write_progress("4_implementation")
+        self.doc_path.write_text(BATCHES_TDD_MD)
+        tasks = self.phase(self.model(), "4_implementation")["dev_phases"][0]["tasks"]
+        self.assertEqual([t["batch"] for t in tasks], [None, None, None])
+
     def test_pr_refresh_stamp_only_when_prs_are_linked(self):
         self.write_progress("4_implementation")
         self.assertEqual(pr_refresh_stamp(self.progress_path), 0.0)
         self.progress_path.write_text(self.progress_path.read_text() + "\n```yaml\n" + PULL_REQUESTS_YAML + "```\n")
         self.assertGreater(pr_refresh_stamp(self.progress_path), 0.0)
 
+    def test_consistency_findings_are_nested_under_the_1c_step_once_the_gate_is_written(self):
+        findings = ["✅ No conflicts found", "⚠️ Final Touches gap acknowledged"]
+        self.write_progress("2_discovery", gates=[("Phase 1 — Intake", findings)])
+        steps = self.phase(self.model(), "1_intake")["steps"]
+        step_1c = next(s for s in steps if s["key"] == "1c")
+        self.assertEqual(step_1c["findings"], findings)
+        self.assertTrue(all(s["findings"] == [] for s in steps if s["key"] != "1c"))
+
+    def test_consistency_findings_are_empty_before_the_gate_is_written(self):
+        self.write_progress("1_intake")
+        steps = self.phase(self.model(), "1_intake")["steps"]
+        step_1c = next(s for s in steps if s["key"] == "1c")
+        self.assertEqual(step_1c["findings"], [])
+
+    def append_yaml(self, block):
+        self.progress_path.write_text(self.progress_path.read_text() + "\n```yaml\n" + block + "```\n")
+
+    def test_step_status_block_replaces_the_checkpoint_done_match(self):
+        self.write_progress("1_intake", done=["1c mentioned but not recorded"])
+        self.append_yaml("step_status:             # current phase only\n  1a: done\n  \"1b\": in_progress  # drafting\n"
+                         "  1z: done\nnext_field: \"not part of the block\"\n")
+        steps = self.phase(self.model(), "1_intake")["steps"]
+        self.assertEqual([(s["key"], s["state"], s["done"]) for s in steps],
+                         [("1a", "done", True), ("1b", "partial", False), ("1c", "todo", False)])
+
+    def test_step_status_matches_by_title_and_only_in_the_current_phase(self):
+        self.write_progress("3_design", gates=["Phase 1 — Intake", "Phase 2 — Discovery"])
+        self.append_yaml("step_status:\n  Step 1: done\n  Architecture diagrams: in_progress\n")
+        model = self.model()
+        self.assertEqual([s["state"] for s in self.phase(model, "3_design")["steps"]], ["done", "partial"])
+        self.assertTrue(all(s["state"] == "done" for s in self.phase(model, "2_discovery")["steps"]))
+        self.assertTrue(all(s["state"] == "todo" for s in self.phase(model, "4_implementation")["steps"]))
+
+    def test_empty_step_status_block_checks_nothing(self):
+        self.write_progress("1_intake", done=["1a converted"])
+        self.append_yaml("step_status:\n")
+        self.assertTrue(all(s["state"] == "todo" for s in self.phase(self.model(), "1_intake")["steps"]))
+
     def test_header_fields(self):
         self.write_progress("1_intake")
         model = self.model()
         self.assertEqual((model["feature"], model["status"], model["next"]), ("Demo", "in_progress", "Do the next thing"))
+
+
+class TddSectionTests(ProgressViewTestBase):
+    def setUp(self):
+        super().setUp()
+        (self.tmp / "Templates").mkdir()
+        (self.tmp / "Templates" / "TDD_Template.md").write_text(TEMPLATE_TDD_MD)
+
+    def sections(self):
+        steps = self.phase(self.model(), "1_intake")["steps"]
+        self.assertTrue(all(s["sections"] == [] for s in steps if s["key"] != "1b"))
+        return {s["title"]: s["done"] for s in next(s for s in steps if s["key"] == "1b")["sections"]}
+
+    def test_1b_lists_the_phase_file_sections_in_order(self):
+        self.write_progress("1_intake")
+        self.assertEqual(list(self.sections()), ["Objective", "Architecture", "Development Plan — Stage Levels",
+                                                  "Edge Cases"])
+
+    def test_section_is_checked_when_the_tdd_body_differs_from_the_template(self):
+        self.write_progress("1_intake")
+        self.doc_path.write_text(SECTIONS_TDD_MD)
+        self.assertEqual(self.sections(), {"Objective": True, "Architecture": False,
+                                           "Development Plan — Stage Levels": True, "Edge Cases": False})
+
+    def test_placeholder_copied_from_the_template_is_not_checked(self):
+        self.write_progress("1_intake")
+        self.doc_path.write_text(TEMPLATE_TDD_MD)
+        self.assertFalse(any(self.sections().values()))
+
+    def test_heading_prefix_matches_the_template_shape_and_ignores_fenced_headings(self):
+        self.write_progress("1_intake")
+        self.doc_path.write_text("## Development plan\n### Stage Level (ie V0)\n| T1 | Real task |\n"
+                                 "## Architecture\n```yaml\n## not a heading\n```\n")
+        sections = self.sections()
+        self.assertTrue(sections["Development Plan — Stage Levels"])
+        self.assertTrue(sections["Architecture"])
+
+    def test_bracketed_placeholder_only_body_is_not_checked_but_a_link_is(self):
+        self.write_progress("1_intake")
+        self.doc_path.write_text("## Objective\n[TBD — pending engineer answers (see Checkpoint)]\n"
+                                 "## Architecture\n- [Design doc](https://example.com/doc)\n## Edge Cases\n[TBD]\n")
+        self.assertEqual(self.sections(), {"Objective": False, "Architecture": True,
+                                           "Development Plan — Stage Levels": False, "Edge Cases": False})
+
+    def section_states(self):
+        steps = self.phase(self.model(), "1_intake")["steps"]
+        return {s["title"]: s["state"] for s in next(s for s in steps if s["key"] == "1b")["sections"]}
+
+    def test_tdd_sections_block_replaces_the_tdd_body_check(self):
+        self.write_progress("1_intake")
+        self.doc_path.write_text(SECTIONS_TDD_MD)  # Objective and Development Plan have bodies
+        self.progress_path.write_text(self.progress_path.read_text() + "\n```yaml\ntdd_sections:\n  Objective: approved\n"
+                                      "  \"Development Plan — Stage Levels\": drafting\n  Edge Cases: bogus\n```\n")
+        self.assertEqual(self.section_states(), {"Objective": "done", "Architecture": "todo",
+                                                 "Development Plan — Stage Levels": "partial", "Edge Cases": "todo"})
+
+    def test_completed_intake_checks_every_section(self):
+        self.write_progress("2_discovery", gates=["Phase 1 — Intake"])
+        self.assertTrue(all(self.sections().values()))
+        self.progress_path.write_text(self.progress_path.read_text() + "\n```yaml\ntdd_sections:\n  Objective: drafting\n```\n")
+        self.assertTrue(all(state == "done" for state in self.section_states().values()))
+
+    def test_template_is_watched(self):
+        self.write_progress("1_intake")
+        names = {path.name for path in watched_paths(self.progress_path, self.process_dir)}
+        self.assertIn("TDD_Template.md", names)
 
 
 class DetectionTests(ProgressViewTestBase):
@@ -355,6 +568,7 @@ class PrNotesTests(unittest.TestCase):
     def setUp(self):
         self._real_gh_json = pr_notes._gh_json
         pr_notes._cache.clear()
+        pr_notes._repo_urls.clear()
         self.calls = 0
 
         def fake_gh_json(args, repo_dir):
@@ -366,6 +580,16 @@ class PrNotesTests(unittest.TestCase):
     def tearDown(self):
         pr_notes._gh_json = self._real_gh_json
         pr_notes._cache.clear()
+        pr_notes._repo_urls.clear()
+
+    def test_pr_url_comes_from_the_github_origin_remote(self):
+        remotes = {"/ssh": "git@github.com:acme/game.git\n", "/https": "https://github.com/acme/game\n",
+                   "/other": "https://gitlab.com/acme/game.git\n"}
+        with mock.patch.object(pr_notes.subprocess, "run",
+                               side_effect=lambda args, cwd, **_: mock.Mock(returncode=0, stdout=remotes[cwd])):
+            self.assertEqual(pr_notes.pr_url(5, Path("/ssh")), "https://github.com/acme/game/pull/5")
+            self.assertEqual(pr_notes.pr_url(6, Path("/https")), "https://github.com/acme/game/pull/6")
+            self.assertEqual(pr_notes.pr_url(7, Path("/other")), "")
 
     def test_notes_merge_comments_review_bodies_and_inline_comments_by_date(self):
         pr = pr_notes.fetch_pr_notes(7, Path("."))
