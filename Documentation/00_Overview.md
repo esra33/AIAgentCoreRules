@@ -92,8 +92,8 @@ things:
 | **Core** (portable) | AIAgentCoreRules | Rules, Processes, Templates, Skills (slash commands), session-lifecycle tooling, this documentation |
 | **Host project layer** | One per project — e.g. TripleMatchAiMetaData | Project rules, SystemIndex, Systems and SystemPatterns docs, Runnable analysis tools, project skills |
 
-Both are linked into the game project under `GitIgnoredExternals/` and never committed to the
-game repository.
+The core is linked under the project's externals folder. The host layer can live there or in
+the project root as files committed to the project repository.
 
 The project's `CLAUDE.md` imports a small set of always-on files. Everything else is loaded
 **on demand**: the agent classifies the task, then reads only the rule and process files that

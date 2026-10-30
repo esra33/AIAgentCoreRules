@@ -1,6 +1,6 @@
 # Setup
 
-`install.py` wires AIAgentCoreRules (and any host layer next to it) into a host project. Stock
+`install.py` wires AIAgentCoreRules and the host AI metadata into a host project. Stock
 `python3`, no packages. Run it from anywhere inside the project — the project root is the main
 checkout of the git repository you are in, or the nearest folder holding `CLAUDE.md` outside git
 (`--project <path>` overrides). `project_root.py` holds that lookup; the session tracker uses the
@@ -20,9 +20,18 @@ python3 $S prepare-worktree <path>     # add the symlinks to a worktree made by 
 |---|---|---|
 | Settings | `settings.core.json`, then each layer's `Setup/settings.host.json` | merged into `.claude/settings.json` (backup: `settings.json.bak`) |
 | Skills | every `<layer>/Skills/<name>/SKILL.md` | `.claude/skills/<name>` → `../../GitIgnoredExternals/<layer>/Skills/<name>` |
-| CLAUDE.md | — | created with the three core imports if missing; missing imports reported, never edited |
+| CLAUDE.md | — | created with core imports and new host imports if missing; missing imports reported, never edited |
+| New host metadata | install picker | creates `AIMetaData/` under the externals folder or project root, with starter rules, SystemIndex, and settings |
 
-Layers are the entries of `GitIgnoredExternals/`; AIAgentCoreRules is applied first. Merge rules:
+On a new install, `install` asks where to put host AI metadata. Choose the externals folder for
+local files, or the project root for files to commit with the project. The project root choice
+creates `AIMetaData/`. Existing host layers keep their current location and are never moved.
+For automation, use `--metadata-location externals` or `--metadata-location project` after the
+`install` subcommand. `check` without a choice reports that a location is needed; passing the
+option previews the new files without creating them. Noninteractive installs require the option.
+
+The core layer stays under the externals folder and is applied first. Host layers are read from
+there or from root `AIMetaData/`. Merge rules:
 objects merge key by key, lists of plain values are unioned, other values are set, and hooks are
 matched by command — an existing hook with the same command is left alone. Nothing else is deleted:
 a skill link that points elsewhere is reported as a conflict and kept. The one exception is a
@@ -70,6 +79,6 @@ folder under `Assets/`:
 ## Worktree settings
 
 `settings.core.json` sets `worktree.baseRef` to `head`, so agent worktrees branch from the
-current branch. It also symlinks `GitIgnoredExternals`, `GitIgnoreReports` and `.claude/skills`
+current branch. It also symlinks the externals folder, `GitIgnoreReports` and `.claude/skills`
 into every worktree Claude Code creates. Removing a worktree removes the links, not what they
 point at. `/land-worktree` (`Skills/land-worktree`) merges a worktree back and cleans it up.

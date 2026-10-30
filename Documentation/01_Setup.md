@@ -1,8 +1,8 @@
 # Setup
 
-How to install the core framework in a local checkout of a Unity project. Everything below is
-personal to your machine — none of it is committed to the game repository. The host project's
-own documentation adds its project-layer repository and project-specific steps.
+How to install the core framework in a local checkout of a project. The core framework remains
+local to your machine. On first install, choose whether the host project's AI metadata stays
+local or lives in the project repository.
 
 ## 1. Clone and link the repository
 
@@ -14,11 +14,23 @@ mkdir -p GitIgnoredExternals
 ln -s <path to>/AIAgentCoreRules GitIgnoredExternals/AIAgentCoreRules
 ```
 
-`GitIgnoredExternals/`, `CLAUDE.md`, `.claude/` and `GitIgnoreReports/` must be ignored by
+`GitIgnoredExternals/`, `CLAUDE.md`, `.claude/` and `GitIgnoreReports/` should be ignored by
 your **global** gitignore (for example the patterns `*GitIgnore*` and `*CLAUDE*`). Never add
 them to the game repository's `.gitignore`.
 
-## 2. Create CLAUDE.md
+## 2. Choose the host metadata location
+
+Run the installer in step 4. On a new install, it offers a picker:
+
+1. `GitIgnoredExternals/AIMetaData/` (or `GitIgnoreExternals/AIMetaData/`) for local metadata.
+2. `AIMetaData/` at the project root for metadata that can be committed with the project.
+
+It creates starter `Rules/ProjectRules.md`, `SystemIndex.md`, and
+`Setup/settings.host.json` files. Existing host layers stay where they are. In a script, pass
+`install --metadata-location externals` or `install --metadata-location project`. The root
+option requires git ignore rules that allow `AIMetaData/` to be committed.
+
+## 3. Create CLAUDE.md
 
 At the project root, import the three always-on core files, followed by the host project's
 always-on files:
@@ -27,13 +39,14 @@ always-on files:
 @GitIgnoredExternals/AIAgentCoreRules/Rules/MetaRouter.md
 @GitIgnoredExternals/AIAgentCoreRules/Rules/StopAndVerify.md
 @GitIgnoredExternals/AIAgentCoreRules/Rules/CoreTags.md
-@GitIgnoredExternals/<HostLayer>/Rules/<ProjectRules>.md
-@GitIgnoredExternals/<HostLayer>/SystemIndex.md
+@AIMetaData/Rules/ProjectRules.md
+@AIMetaData/SystemIndex.md
 ```
 
-Keep this list short — every always-on file costs context in every session.
+Use the chosen host metadata path in these imports. On a new install, the installer creates
+`CLAUDE.md` with the correct imports. Keep this list short — every always-on file costs context.
 
-## 3. Run the installer
+## 4. Run the installer
 
 ```bash
 python3 GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.py check   # preview
@@ -42,7 +55,7 @@ python3 GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.py         # ap
 
 It merges `Tools/setup/settings.core.json` into `.claude/settings.json` (session hooks and the
 worktree settings below), then each host layer's `Setup/settings.host.json`; links every layer's
-skills into `.claude/skills/`; and creates `CLAUDE.md` with the core imports if it is missing.
+skills into `.claude/skills/`; and creates `CLAUDE.md` with the core and new host imports if it is missing.
 It only adds or updates what the fragments define, backs `settings.json` up to
 `settings.json.bak` before changing it, and is safe to re-run — run it again after pulling
 AIAgentCoreRules or the host layer. Details: [[Tools/setup/README|setup README]].
@@ -79,7 +92,7 @@ session metrics/transcript parsing and Claude session-launch commands are not ma
 by this installer. Do not claim those hooks or tracking ran in Codex. Existing AGENTS.md should
 state these host adaptations and any project-specific scope exceptions.
 
-## 4. Agent worktrees
+## 5. Agent worktrees
 
 Background agents work in git worktrees under `.claude/worktrees/`. The installer sets:
 
@@ -94,7 +107,7 @@ Test agent work in the project you already have open, not by opening the worktre
 worktree made by hand with `git worktree add`, run `install.py prepare-worktree <path>` to add
 the symlinks.
 
-## 5. Verify
+## 6. Verify
 
 Start a new Claude Code session in the project. You should see a **Session tracking (started)**
 block in the agent's context, and `/feature`, `/end-session` and the other commands should be

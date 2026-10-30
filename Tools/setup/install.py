@@ -14,7 +14,8 @@ Subcommands:
     worktrees          List the project's linked worktrees with branch, dirty state, and commits
                        ahead of the current branch (used by /land-worktree).
 
-Layers are the entries of <project>/GitIgnoredExternals/ (or GitIgnoreExternals/). Each layer may ship:
+The core layer lives in <project>/GitIgnoredExternals/ (or GitIgnoreExternals/).
+Host layers may live there or in <project>/AIMetaData/. Each layer may ship:
     Skills/<name>/SKILL.md          linked to the selected agent's skills directory
     Setup/settings.host.json        merged after this layer's Tools/setup/settings.core.json
 
@@ -38,6 +39,7 @@ CORE_FRAGMENT = os.path.join(SCRIPT_DIR, "settings.core.json")
 HOST_FRAGMENT = os.path.join("Setup", "settings.host.json")
 EXTERNALS = "GitIgnoredExternals"
 CORE_NAME = "AIAgentCoreRules"
+HOST_NAME = "AIMetaData"
 CORE_IMPORTS = [
     "@GitIgnoredExternals/AIAgentCoreRules/Rules/MetaRouter.md",
     "@GitIgnoredExternals/AIAgentCoreRules/Rules/StopAndVerify.md",
@@ -63,7 +65,7 @@ def find_project_root(start):
 
 
 def find_layers(root):
-    """Return [(name, linked_path)] with the core layer first."""
+    """Return [(name, path)] with the core layer first."""
     candidates = [os.path.join(root, name) for name in (EXTERNALS, "GitIgnoreExternals")]
     present = [path for path in candidates if os.path.isdir(path)]
     if len(present) > 1:
@@ -76,11 +78,83 @@ def find_layers(root):
         path = os.path.join(externals, name)
         if os.path.isdir(path):
             layers.append((name, path))
+    host_path = os.path.join(root, HOST_NAME)
+    if os.path.isdir(host_path):
+        if host_layers(layers):
+            raise RuntimeError(f"host metadata exists in both {externals} and {host_path}")
+        layers.append((HOST_NAME, host_path))
     is_core = lambda layer: os.path.realpath(layer[1]) == CORE_ROOT or layer[0] == CORE_NAME
     layers.sort(key=lambda layer: not is_core(layer))
     if not layers or not is_core(layers[0]):
         raise RuntimeError(f"{CORE_NAME} is not linked under {externals}")
     return layers
+
+
+def host_layers(layers):
+    return [
+        (name, path) for name, path in layers
+        if os.path.realpath(path) != CORE_ROOT and name != CORE_NAME
+        and (name == HOST_NAME or os.path.isfile(os.path.join(path, "SystemIndex.md"))
+             or os.path.isfile(os.path.join(path, HOST_FRAGMENT)))
+    ]
+
+
+def choose_host_location(args, root, layers):
+    """Select a location only for an unconfigured host project."""
+    existing = host_layers(layers)
+    if existing:
+        if args.metadata_location:
+            selected = "project" if os.path.dirname(existing[0][1]) == root else "externals"
+            if selected != args.metadata_location:
+                raise RuntimeError(f"host metadata already lives at {existing[0][1]}")
+        return None
+    if args.metadata_location:
+        return args.metadata_location
+    if args.dry_run:
+        return None
+    if not sys.stdin.isatty():
+        raise RuntimeError("new install needs a metadata location; pass --metadata-location externals or project")
+    print("Where should this project's AI metadata live?")
+    externals_name = os.path.basename(os.path.dirname(layers[0][1]))
+    print(f"  1. {externals_name}/{HOST_NAME}/ (local, excluded from the project repository)")
+    print("  2. Project root (AIMetaData/, files can be committed)")
+    while True:
+        try:
+            answer = input("Choose 1 or 2: ").strip()
+        except (EOFError, KeyboardInterrupt) as error:
+            raise RuntimeError("metadata location selection cancelled") from error
+        if answer in ("1", "2"):
+            return "externals" if answer == "1" else "project"
+        print("Enter 1 or 2.")
+
+
+def scaffold_host(root, layers, location, dry_run, log):
+    if location is None:
+        if not host_layers(layers):
+            log.append("host metadata: choose a location with --metadata-location externals or project")
+        return layers
+    externals = os.path.dirname(layers[0][1])
+    path = os.path.join(externals if location == "externals" else root, HOST_NAME)
+    if os.path.lexists(path):
+        raise RuntimeError(f"{path} exists but is not a host metadata directory")
+    if location == "project":
+        relative = os.path.join(HOST_NAME, "SystemIndex.md")
+        result = subprocess.run(["git", "check-ignore", "-q", relative], cwd=root)
+        if result.returncode == 0:
+            raise RuntimeError(f"{relative} is ignored by git; adjust ignore rules before choosing project")
+    files = {
+        "Rules/ProjectRules.md": "# Project rules\n\nAdd project-wide AI instructions here.\n",
+        "SystemIndex.md": "# System index\n\nMap project systems to their documentation here.\n",
+        "Setup/settings.host.json": "{}\n",
+    }
+    for relative, content in files.items():
+        target = os.path.join(path, relative)
+        log.append(f"host metadata: create {os.path.relpath(target, root)}")
+        if not dry_run:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write(content)
+    return layers + [(HOST_NAME, path)]
 
 
 def load_json(path):
@@ -228,6 +302,11 @@ def install_agents_md(root, layers, dry_run, log):
     if os.path.lexists(path):
         return
     core_path = os.path.relpath(layers[0][1], root).replace(os.sep, "/")
+    host_paths = [os.path.relpath(path, root).replace(os.sep, "/") for _, path in host_layers(layers)]
+    host_instructions = "".join(
+        f"Read `{path}/Rules/ProjectRules.md` and `{path}/SystemIndex.md` when present.\n"
+        for path in host_paths
+    )
     log.append("AGENTS.md: create with the core rule entry points")
     if not dry_run:
         with open(path, "w", encoding="utf-8") as handle:
@@ -237,6 +316,7 @@ def install_agents_md(root, layers, dry_run, log):
                 f"1. `{core_path}/Rules/MetaRouter.md`\n"
                 f"2. `{core_path}/Rules/StopAndVerify.md`\n"
                 f"3. `{core_path}/Rules/CoreTags.md`\n\n"
+                f"{host_instructions}\n"
                 "Follow the router and resolve its relative paths against its Rules directory.\n"
                 "Use available filesystem reading tools when a dedicated Read tool is absent.\n"
                 "Invoke discovered skills with `$skill-name`; interpret Claude-specific tool names\n"
@@ -337,12 +417,18 @@ def cmd_worktrees(args, root):
 def cmd_install(args, root):
     layers = find_layers(root)
     log = []
+    location = choose_host_location(args, root, layers)
+    layers = scaffold_host(root, layers, location, args.dry_run, log)
     agents = ("claude", "codex") if args.agent == "both" else (args.agent,)
     for agent in agents:
         if agent == "claude":
             install_settings(root, layers, args.dry_run, log)
             core_path = os.path.relpath(layers[0][1], root).replace(os.sep, "/")
             imports = [f"@{core_path}/Rules/{name}.md" for name in ("MetaRouter", "StopAndVerify", "CoreTags")]
+            if location is not None:
+                for _, path in host_layers(layers):
+                    host_path = os.path.relpath(path, root).replace(os.sep, "/")
+                    imports.extend((f"@{host_path}/Rules/ProjectRules.md", f"@{host_path}/SystemIndex.md"))
             install_claude_md(root, args.dry_run, log, imports)
         else:
             install_agents_md(root, layers, args.dry_run, log)
@@ -369,9 +455,13 @@ def main():
     install = sub.add_parser("install", help="configure Claude, Codex, or both")
     install.add_argument("--agent", choices=("claude", "codex", "both"), default="claude")
     install.add_argument("--dry-run", action="store_true")
+    install.add_argument("--metadata-location", choices=("externals", "project"),
+                         help="location for new host metadata; prompts when omitted on an interactive install")
     install.set_defaults(func=cmd_install)
     check = sub.add_parser("check", help="install --dry-run")
     check.add_argument("--agent", choices=("claude", "codex", "both"), default="claude")
+    check.add_argument("--metadata-location", choices=("externals", "project"),
+                       help="preview a new host metadata location")
     check.set_defaults(func=cmd_install, dry_run=True)
     prepare = sub.add_parser("prepare-worktree", help="symlink worktree.symlinkDirectories into a worktree")
     prepare.add_argument("path")

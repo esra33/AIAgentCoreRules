@@ -8,7 +8,7 @@ Both fall back to the nearest ancestor holding CLAUDE.md for a project without g
 None when neither is found. Never derive a root from a shell's cwd without one of these: the
 agent's `cd` moves the cwd, and a root built from it nests GitIgnoreReports inside itself.
 
-A path inside <project>/GitIgnoredExternals/<layer> resolves to <project>: each layer is a
+A path inside <project>/GitIgnoredExternals/<layer> or GitIgnoreExternals/<layer> resolves to <project>: each layer is a
 symlinked repo of its own, so git alone would answer with the layer. Pass logical paths
 (logical_cwd(), a script's abspath) — os.getcwd() has already resolved the symlink away.
 """
@@ -53,11 +53,12 @@ def logical_cwd():
 
 
 def host_of_layer(path):
-    """<project> when path is inside <project>/GitIgnoredExternals/, else None."""
+    """<project> when path is inside either supported externals directory, else None."""
     parts = os.path.abspath(path).split(os.sep)
-    if EXTERNALS not in parts:
-        return None
-    return os.sep.join(parts[:parts.index(EXTERNALS)]) or os.sep
+    for name in (EXTERNALS, "GitIgnoreExternals"):
+        if name in parts:
+            return os.sep.join(parts[:parts.index(name)]) or os.sep
+    return None
 
 
 def find_project_root(start):

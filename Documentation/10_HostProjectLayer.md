@@ -1,7 +1,9 @@
 # Host Project Layer
 
 The core framework is project-agnostic. Each project that uses it supplies a **host project
-layer**: a separate repository with the project's own rules, system knowledge and tooling. The
+layer** with the project's own rules, system knowledge and tooling. It can be a local directory
+under `GitIgnoredExternals/` or `GitIgnoreExternals/`, or a directory at the project root whose
+files are committed to the project repository. The
 core processes refer to these pieces by role, so a project that provides them gets the full
 benefit of every process.
 
