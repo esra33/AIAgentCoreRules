@@ -528,6 +528,13 @@ PERF_SCRIPT = """
     return parts.join("");
   }
 
+  function perfUsage(usage) {
+    const value = (n) => n == null ? 'Unavailable' : Number(n).toLocaleString(undefined, {maximumFractionDigits: 1});
+    return '<div class="perf-tiles">' + [['Total tokens (recorded)', usage.total], ['Turns', usage.turns],
+      ['Average tokens / turn', usage.per_turn]].map(([label, n]) =>
+      '<div class="perf-tile"><div class="label">' + label + '</div><div class="value">' + value(n) + '</div></div>').join('') + '</div>';
+  }
+
   function perfSession(session, colors) {
     const when = (session.started_at || "").slice(0, 16).replace("T", " ");
     const parts = ['<details class="perf-session' + (session.active ? ' active' : '') + '" data-key="' + escapeHtml(session.folder) + '"'
@@ -535,7 +542,8 @@ PERF_SCRIPT = """
       + '<span class="title">' + escapeHtml(session.title || session.folder) + '</span>'
       + (session.active ? '<span class="perf-pill active">active</span>' : '')
       + (session.lane ? '<span class="perf-pill">' + escapeHtml(session.lane) + '</span>' : '')
-      + '<span class="total">' + (session.compiled ? perfCompact(session.total) : '–') + '</span></summary>'];
+      + '<span class="total">' + (session.usage.total != null ? perfCompact(session.usage.total) : session.compiled ? perfCompact(session.total) : '–') + '</span></summary>'];
+    parts.push(perfUsage(session.usage));
     if (!session.compiled) {
       parts.push('<div class="empty">Token breakdown not compiled' + (session.error ? ': ' + escapeHtml(session.error) : ' yet') + '.</div>');
     } else {
@@ -605,7 +613,7 @@ PERF_SCRIPT = """
         perfDocReview(o.doc_review, tile),
         '<h2>Sessions, newest first</h2>'];
       if (o.sessions > o.compiled) {
-        parts.push('<div class="meta">' + (o.sessions - o.compiled) + ' session(s) without a compiled breakdown are listed but left out of the statistics.</div>');
+        parts.push('<div class="meta">' + (o.sessions - o.compiled) + ' session(s) without a compiled breakdown are listed but left out of the estimated breakdown statistics.</div>');
       }
       if (!sessions.length) parts.push('<div class="empty">No sessions tagged with this feature yet.</div>');
       sessions.forEach((session) => parts.push(perfSession(session, colors)));

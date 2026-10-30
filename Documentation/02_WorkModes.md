@@ -95,6 +95,22 @@ generating partial code.
 - Existing comments, regions and TODOs are preserved unchanged.
 - Only the required lines changed; surrounding code is untouched.
 
+**Thread-affinity hard gate** — before adding or changing any `ConfigureAwait(false)`, establish
+the entry context and trace its continuation through helpers, injected callbacks, events and
+`catch`/`finally`. No Unity, Editor, UI or other thread-affine API may be accessed after that
+await without explicit verified dispatch to its required context. If safety cannot be proven,
+retain ordinary `await` on a known required context or separate host updates from independent
+work; stop affected generation until thread ownership is resolved. Recheck before presentation.
+
+`ConfigureAwait(false)` does not force a worker thread, and completed tasks can continue inline.
+`Task.Run` does not make worker-side Unity calls safe; a callee's configuration does not change
+its caller's separate await. Cancellation/disposal paths need their own check because
+`CancellationTokenSource.Cancel` invokes callbacks synchronously on the cancelling thread.
+Callbacks must not hide contended locks or blocking cleanup behind an assumed worker boundary;
+signal an owned async cleanup flow and observe it when cleanup must run elsewhere. Record a
+short thread-ownership rationale and use regression evidence for pending and already-completed
+awaits, plus cancellation/teardown where relevant; one passing timing path is not proof.
+
 **Behaviour claims** — in any mode, what an engine, library, API or CLI does at runtime (a
 getter returning a copy, a library working on every platform, an API accepting a format, where
 a CLI option goes) is stated as a hypothesis, with how to check it, until it is grounded in

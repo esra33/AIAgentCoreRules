@@ -355,7 +355,8 @@ def token_charts(folder):
     except (OSError, ValueError):
         return None
     breakdown = state.get("breakdown") or {}
-    if not breakdown.get("total") and not state.get("comparison"):
+    tokens = state.get("tokens") or {}
+    if not breakdown.get("total") and not state.get("comparison") and not tokens.get("available"):
         return None
     parts = ['<p class="muted small">Estimated from the transcript; each model call counted once. '
              'See "Token breakdown" in metrics.md.</p>',
@@ -363,6 +364,16 @@ def token_charts(folder):
     if breakdown.get("total"):
         parts += ["<h3>Standardized operations</h3>", standardized_chart(breakdown),
                   "<h3>What saved tokens and round-trips</h3>", savings_chart(breakdown)]
+    if not breakdown.get("total") and not state.get("comparison"):
+        parts = []
+    if tokens.get("available"):
+        total, turns = tokens.get("total_tokens"), tokens.get("turns")
+        stats = [("Total tokens (recorded)", total), ("Turns", turns),
+                 ("Average tokens / turn", total / turns if total is not None and turns else None)]
+        tiles = ''.join('<div class="tile"><span class="tval">%s</span><span class="tlab">%s</span></div>'
+                        % ("Unavailable" if value is None else format(value, ",.1f").removesuffix(".0"), label)
+                        for label, value in stats)
+        parts.insert(0, '<h3>Session usage</h3><div class="tiles">%s</div>' % tiles)
     return "\n".join(parts)
 
 

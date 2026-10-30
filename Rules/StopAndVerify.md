@@ -34,7 +34,36 @@ pre_generation:
   - "[SIG] Locate every property, method, and field you intend to use in the provided source text."
   - "[BEHAV] Every runtime behaviour the code relies on (copy vs reference, platform support, accepted formats, argument order) is grounded, not assumed."
   - "[SO]  Verify Unity ScriptableObjects use CreateInstance<T>(), never new T()."
+  - "[ASYNC] Every new or changed ConfigureAwait(false) must pass the Thread-Affinity Gate below before generating the affected code."
 ```
+
+## Thread-Affinity Gate — every new or changed `ConfigureAwait(false)`
+
+**Hard rule [ASYNC]: do not add or change a `ConfigureAwait(false)` site until its continuation
+is proven safe on every possible execution thread.** Check the following before generating
+the affected code and verify them again before presenting it:
+
+- Establish the entry thread/context and trace the continuation through called helpers,
+  injected callbacks, events, and `catch`/`finally` cleanup. A helper or delegate can hide a
+  thread-affine Unity, Editor, UI or other host API access.
+- After this await, no thread-affine access is permitted unless an explicit, verified
+  dispatch restores the required thread/context before that access. Otherwise retain ordinary
+  `await` on a known required context or separate context-independent work from the host
+  continuation. If thread ownership cannot be established, stop the affected change and
+  resolve it before generating code; do not assume the path is safe.
+- `ConfigureAwait(false)` suppresses context capture for that await; it does not force a
+  worker thread. An already-completed task can continue inline. `Task.Run` does not make
+  Unity API access safe on a worker, and a callee's configuration does not override its
+  caller's separate await. Check both inline completion and suspended continuation paths.
+- Check cancellation registrations and disposal independently: `CancellationTokenSource.Cancel`
+  invokes callbacks synchronously on the cancelling thread. Do not place contended locks,
+  blocking cleanup, or incorrectly threaded host access in a cancellation callback and assume
+  the enclosing worker/await boundary protects the caller. Signal an owned async flow when
+  cleanup must run elsewhere, and observe that flow through completion.
+- Include a brief thread-ownership rationale in the review/checkpoint. For thread-sensitive
+  boundaries, add or reuse regression evidence for pending worker completion and already-complete
+  awaits, plus cancellation/teardown when relevant. A passing test on one thread or one timing
+  path does not replace the source-level check.
 
 ## Stop Output Format
 
@@ -53,6 +82,7 @@ post_generation:
   - "[SIG]  No API signatures were guessed — every call is grounded in provided source."
   - "[PRES] All existing comments, regions, and TODOs are preserved unchanged."
   - "[SURG] Only the required lines were changed — surrounding code is character-perfect."
+  - "[ASYNC] Every new or changed ConfigureAwait(false) passed the Thread-Affinity Gate, including helper/callback access and cancellation/cleanup paths."
 ```
 
 ## Behaviour Claims — any mode
