@@ -19,4 +19,4 @@ steps:
   - "No arguments → ask what to build or change, then continue."
 ```
 
-SmallTask's limits still apply: if the work outgrows them, stop and offer `/feature <Name>`.
+SmallTask's limits still apply: if the work outgrows them, stop and offer `/large-task` (still one session, no GDD) or `/feature <Name>`, as SmallTask.md's escalate_when says.

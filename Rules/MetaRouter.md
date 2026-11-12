@@ -22,7 +22,7 @@ session_lifecycle:
   record:  "Right after classifying the mode below, record the lane and work type with the `set` command shown in the Session tracking block."
   work_type: "bug_fix | small_feature | large_feature | feature | question | other — what the work is, not which lane ran it (definitions in ../Skills/start-session). Defaults to the lane's; pass --work-type when they differ."
   name:    "/start-session <name> names the session (folder + metrics heading). Optional."
-  during:  "The engineer logs /inaccuracy <reason> after correcting you, and /iteration <change> on a deliberate change of direction."
+  during:  "The engineer logs /iteration <change> on a deliberate change of direction. Corrections are logged by you (self_log below)."
   self_log: "When you retract a claim, or the engineer rejects your approach, log it yourself straight away with `note --kind inaccuracy --source agent \"<what was wrong>\"` (command in the Session tracking block). Unlogged corrections are back-filled by /end-session with --source retro."
   end:     "/end-session — compiles metrics + router trace, writes a lane-scaled retrospective, opens both files."
   backstop: "If /end-session is skipped, the SessionEnd hook still compiles metrics.md (no retrospective)."
@@ -102,8 +102,8 @@ non_negotiables:
 
 ```yaml
 delegate_aggressively:
-  - "Surveying a system, directory, or feature area           → /discover <area>"
-  - "'Where is X / which files / who implements Y'            → Explore agent, or /discover"
+  - "Surveying a system, directory, or feature area           → Explore agent, asked for a compact map (key types, entry points, integration points, gotchas)"
+  - "'Where is X / which files / who implements Y'            → Explore agent (a single known type: one codeindex query inline)"
   - "Several independent areas                                → one agent per area, ONE message"
   - "A compliance or review sweep over many files             → fan out, then synthesise"
   - "Multi-round exploratory/trial-and-error work (browser-automation probing, iterative debug
@@ -170,7 +170,6 @@ does not count: the edit is rejected, and the router trace can only guess at she
 commands:   # skills in ../Skills/ (project-specific ones in the host metadata repo)
   /start-session:  "start/resume tracking, set lane (normally automatic)"
   /end-session:    "metrics + router trace + retrospective, opens files"
-  /inaccuracy:     "engineer logs a corrected agent mistake"
   /iteration:      "engineer logs a deliberate change of direction"
   /feature <Name>: "enter the CreateFeature process"
   /small-task <ask>: "enter the SmallTask process (lane small_task), skipping classification"
@@ -187,11 +186,10 @@ commands:   # skills in ../Skills/ (project-specific ones in the host metadata r
   /feature-pr <PR> [Name] [V-phase]: "tie a PR to a feature's V-phase in its progress file, read its review notes, record addressed ones there"
   /publish-batch [plan|publish|status|finish]: "Phase 4: publish a task's C# in small batch PRs against the user branch, one at a time; change table per batch; next batch after merge"
   /kill-server [port|pid|all]: "stop a running doc-review preview server"
-  /discover <area>: "subagent survey, returns a compact map"
-  /audit [files]:  "rules compliance check, report only"
+  /audit [files]:  "judgement review (SRP, interfaces, resources, method design, host rules) in a fresh forked subagent, once per step/batch; report only. Mechanical tags: cslint hook"
   /land-worktree [name]: "merge an agent worktree into the current branch, test, then remove it (or roll back)"
   /new-session <prompt>: "open a fresh session with that prompt in a new Terminal.app window or Rider terminal tab (macOS)"
-  /uses <Type>:    "who uses a type / calls its members (host project tool)"
+  /token-usage-reports: "sanitized token-usage and session-telemetry reports (current, recent or all sessions)"
 ```
 
 `Documentation/` (in this repo and in the host metadata repo) is the human-facing copy of the

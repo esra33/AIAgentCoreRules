@@ -65,7 +65,7 @@ the most common router miss in retros.
 
 ```yaml
 delegate_to_subagents:
-  - "Any question of the form 'where / which files / who implements' — use /discover or an Explore agent."
+  - "Any question of the form 'where / which files / who implements' — use an Explore agent."
   - "Surveying an unfamiliar system, directory, or feature area — always delegate."
   - "Multiple independent areas — one agent per area, launched in a single message."
 keep_in_main_context:
@@ -90,7 +90,7 @@ A single grep that reverses a conclusion is the highest-value token spend availa
 generously.
 
 Conversely: **a zero result is a claim too.** Before reporting "nothing uses this", confirm the
-query could have found it if it existed. See the event-member exception in `/uses`.
+query could have found it if it existed. See the event-member exception under `usages.py` in the unity-tools README.
 
 ### III. The finding may be the deliverable
 
@@ -198,6 +198,6 @@ Then stop. Escalating to feature work is the engineer's call.
 expected_loads:
   - "Rules/InvestigationMode.md"
   - "Systems/<system>.md for every system the question touched (if it exists), loaded before that system's source was read — a late load is a miss"
-expected_tools: [codeindex.py or usages.py, /discover or an Explore agent for breadth]
+expected_tools: [codeindex.py or usages.py, an Explore agent for breadth]
 expected_output: "a document under VI, unless the chat_answer_exception applied and the document was offered. That case is not a miss."
 ```

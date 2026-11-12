@@ -2,7 +2,9 @@
 
 import json
 import importlib.util
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +14,7 @@ from unittest import mock
 
 INSTALLER = Path(__file__).with_name("install.py")
 CORE_ROOT = INSTALLER.parents[2]
+INSTALL_SH = Path(__file__).with_name("install.sh")
 
 
 class MetadataInstallTests(unittest.TestCase):
@@ -129,6 +132,118 @@ class MetadataInstallTests(unittest.TestCase):
         with mock.patch.object(installer.sys.stdin, "isatty", return_value=True), \
              mock.patch("builtins.input", return_value="2"):
             self.assertEqual(installer.choose_host_location(args, str(self.root), layers), "project")
+
+    def test_skill_moved_between_layers_is_relinked_in_one_run(self):
+        spec = importlib.util.spec_from_file_location("setup_install", INSTALLER)
+        installer = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(INSTALLER.parent))
+        try:
+            spec.loader.exec_module(installer)
+        finally:
+            sys.path.pop(0)
+        core = self.root / "Core"
+        host = self.root / "Host"
+        (core / "Skills/uses").mkdir(parents=True)
+        (core / "Skills/uses/SKILL.md").write_text("---\nname: uses\n---\n")
+        (host / "Skills").mkdir(parents=True)
+        skills_dir = self.root / ".claude/skills"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "uses").symlink_to("../../Host/Skills/uses")   # skill moved Host -> Core
+        layers = [("Core", str(core)), ("Host", str(host))]
+
+        preview = []
+        installer.install_skills(str(self.root), layers, True, preview)
+        self.assertTrue(any("prune stale uses" in line for line in preview), preview)
+        self.assertTrue(any(line.startswith("skills: link uses") for line in preview), preview)
+        self.assertFalse(any("CONFLICT" in line for line in preview), preview)
+
+        log = []
+        installer.install_skills(str(self.root), layers, False, log)
+        self.assertEqual((skills_dir / "uses").resolve(), (core / "Skills/uses").resolve())
+
+
+class BootstrapTests(unittest.TestCase):
+    """A project without a linked core, installed from a core checkout outside it."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve() / "Game"
+        (self.root / "Sub").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        self.env = {key: value for key, value in os.environ.items() if key != "CLAUDE_PROJECT_DIR"}
+        self.env["GIT_CONFIG_GLOBAL"] = os.devnull   # the engineer's global *GitIgnore* pattern would hide the warning
+
+    def run_script(self, *args, cwd=None, shell=None):
+        command = [shell, str(INSTALL_SH)] if shell else [str(INSTALL_SH)]
+        return subprocess.run(command + list(args), cwd=cwd or self.root / "Sub", env=self.env,
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def test_install_links_core_into_a_fresh_project(self):
+        link = self.root / "GitIgnoredExternals/AIAgentCoreRules"
+        preview = self.run_script("check", "--metadata-location", "externals")
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertIn("core: link GitIgnoredExternals/AIAgentCoreRules", preview.stdout)
+        self.assertIn("not ignored by git", preview.stdout)
+        self.assertFalse(link.exists())
+        result = self.run_script("--metadata-location", "externals", "--defaults")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(link.resolve(), CORE_ROOT.resolve())
+        self.assertTrue((self.root / ".claude/skills/audit").exists())
+        again = self.run_script("check")
+        self.assertIn("up to date", again.stdout)
+
+    def test_install_from_the_core_checkout_itself_is_refused(self):
+        result = self.run_script("check", cwd=CORE_ROOT)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("checkout itself", result.stderr)
+
+    def test_missing_project_folder_is_refused(self):
+        result = self.run_script("--project", str(self.root / "Missing"), "check")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not exist", result.stderr)
+        self.assertFalse((self.root / "Missing").exists())
+
+    def test_script_runs_from_zsh_and_sh(self):
+        for shell in ("zsh", "sh"):
+            if not shutil.which(shell):
+                continue
+            result = self.run_script("check", "--metadata-location", "externals", shell=shell)
+            self.assertEqual(result.returncode, 0, f"{shell}: {result.stderr}")
+            self.assertIn("core: link", result.stdout)
+
+    def test_sourcing_leaves_the_calling_shell_alive_and_unchanged(self):
+        shells = {"bash": "bash --norc -i -c", "zsh": "zsh -f -i -c"}
+        for shell, launcher in shells.items():
+            if not shutil.which(shell):
+                continue
+            script = f"source '{INSTALL_SH}'; echo alive=$?; [[ -o errexit ]] && echo errexit-on"
+            result = subprocess.run(launcher.split() + [script], cwd=self.root, env=self.env,
+                                    capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            self.assertIn("alive=2", result.stdout, f"{shell}: {result.stderr}")
+            self.assertNotIn("errexit-on", result.stdout, shell)
+            self.assertIn("instead of sourcing", result.stderr, shell)
+
+
+class DefaultCommandTests(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("setup_install", INSTALLER)
+        self.installer = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(INSTALLER.parent))
+        try:
+            spec.loader.exec_module(self.installer)
+        finally:
+            sys.path.pop(0)
+
+    def test_install_is_inserted_after_global_options(self):
+        commands = ("install", "check", "prepare-worktree", "worktrees")
+        default = self.installer.with_default_command
+        self.assertEqual(default([], commands), ["install"])
+        self.assertEqual(default(["--agent", "codex"], commands), ["install", "--agent", "codex"])
+        self.assertEqual(default(["--project", "P", "--defaults"], commands), ["--project", "P", "install", "--defaults"])
+        self.assertEqual(default(["--project=P"], commands), ["--project=P", "install"])
+        self.assertEqual(default(["--project", "P", "check"], commands), ["--project", "P", "check"])
+        self.assertEqual(default(["--help"], commands), ["--help"])
 
 
 if __name__ == "__main__":

@@ -61,11 +61,11 @@ plan:
   - "Fresh base: git -C <main checkout> fetch origin <base>, then git rev-list --count HEAD..origin/<base>. Non-zero → ask the engineer to pull in their main checkout and stop — the worktree branches from local HEAD, so a stale checkout re-shows merged batches."
   - "Task ids: the TDD has '### V<n>' headings under '## Development plan' but its task tables have no '#' column → before anything else, propose adding it as the first column of every V-phase table. Ids: the TaskList {id:} of the same task (match by title) when the TaskList has ids, so both files agree; else T1, T2 … across the whole plan. Show the id per row and wait for the engineer's OK, then edit the TDD (the feature folder is not in any repo). A TDD source of truth elsewhere (sources_of_truth, e.g. Confluence) → say the column must be added there too."
   - "Worktree: EnterWorktree(name: <worktree>) — the project settings branch it from HEAD and symlink the ignored folders. Then git branch -m <branch> so the branch name is stable."
-  - "Batch plan: split the task's files from the TDD design into batches by batch_size. Show it as a numbered list (batch title, files) and wait for the engineer's OK; they may merge, split or reorder."
+  - "Batch plan: split the task's files from the TDD design into batches by batch_size. Show it as the batch plan table (format below) — never as a bulleted or numbered list — and wait for the engineer's OK; they may merge, split or reorder."
   - "Record (progress header, batches block): <task_id>: branch, base, plan (the batch titles), merged: 0, open_pr: null, prs: []. Set updated_at."
 
 publish:
-  - "Preconditions: every file in the batch passed /audit (Phase 4 per-file checklist), and typecheck.py passes in the worktree. Either fails → fix or report, do not publish."
+  - "Preconditions: one /audit run over the batch's files (Skill tool — a fresh subagent, not a self-review) with every violation fixed or reported, each file's cslint violations fixed or explained, and typecheck.py passes in the worktree. Any fails → fix or report, do not publish."
   - "Stage only the batch's files by path (git add <files>, git rm <files>); never git add -A or ., and never a file outside the batch."
   - "New C# files have no .meta until Unity imports them: say so in the PR body; the engineer commits the generated .meta files after pulling."
   - "Commit message: the pr_title, then the attribution lines the session requires."
@@ -93,16 +93,45 @@ finish:
 ## Change table
 
 One row per file added, modified or removed; types named so the reviewer can find them.
+`Change` uses the same 🟢 **NEW** · 🟡 **MOD** · 🔴 **DELETE** tags as the batch plan table.
 
 ```markdown
 | Change | File · Type | What changed | Why |
 |---|---|---|---|
-| added | `Scripts/Foo/IFooService.cs` · `IFooService` | New interface: `Load()`, `IsReady` | Lets HUD code depend on the service, not the manager (TDD §3.2) |
-| modified | `Scripts/Foo/FooManager.cs` · `FooManager` | Implements `IFooService`; `Load` now awaits config | Design step 2; was blocking the main thread |
-| removed | `Scripts/Foo/FooHelper.cs` · `FooHelper` | Deleted | Logic folded into `FooManager.Load` |
+| 🟢 **NEW** | `Scripts/Foo/IFooService.cs` · `IFooService` | New interface: `Load()`, `IsReady` | Lets HUD code depend on the service, not the manager (TDD §3.2) |
+| 🟡 **MOD** | `Scripts/Foo/FooManager.cs` · `FooManager` | Implements `IFooService`; `Load` now awaits config | Design step 2; was blocking the main thread |
+| 🔴 **DELETE** | `Scripts/Foo/FooHelper.cs` · `FooHelper` | Deleted | Logic folded into `FooManager.Load` |
 ```
 
 `Why` cites the TDD section, the design decision or the review note — never "requested".
+
+## Batch plan table
+
+The `plan` step's proposal. One bold line per batch (`**Batch <k>/<N> — <title>** · <total> lines`),
+then one table row per file it adds, modifies or removes, then one summary table for the whole
+plan. Tables only: no bullets, numbered lists or listing prose anywhere in the proposal.
+
+**Batch 1/2 — Foo service contract** · ~55 lines
+
+| Type/File changing | Type of change | Why (TLDR) | How (TLDR) | Line count |
+|---|---|---|---|---|
+| `IFooService` · `Scripts/Foo/IFooService.cs` | 🟢 **NEW** | HUD depends on the service, not the manager (TDD §3.2) | New interface: `Load()`, `IsReady` | ~20 |
+| `FooManager` · `Scripts/Foo/FooManager.cs` | 🟡 **MOD** | Design step 2 | Implements `IFooService` | ~25 |
+| `FooHelper` · `Scripts/Foo/FooHelper.cs` | 🔴 **DELETE** | Logic folded into `FooManager` | File removed | −10 |
+
+| Batch | Files | Lines | Within batch_size |
+|---|---|---|---|
+| 1/2 Foo service contract | 3 | ~55 | yes |
+| 2/2 HUD wiring | 2 | ~120 | yes |
+
+```yaml
+batch_plan_table:
+  type_file:      "The type first, then the path. A generated file adds (generated) after the path."
+  type_of_change: "🟢 **NEW** · 🟡 **MOD** · 🔴 **DELETE** — the change-tag emoji colors of Rules/ChangeClassification.md, so the plan matches the TDD's file list and diagrams."
+  why_how:        "One short clause each. Why cites the TDD section or design decision; How names the concrete change."
+  line_count:     "Added + removed lines. Files already written in the worktree: the exact count from git diff --numstat <base> (or wc -l for a new untracked file). Not yet written: an estimate from the TDD design, prefixed ~."
+  summary:        "One row per batch: files, line total, and whether it is within batch_size (≤ ~300 lines, ≤ ~5 files); 'no — <reason>' when it exceeds it."
+```
 
 ## Rules
 

@@ -15,8 +15,14 @@ Code: `Tools/code-graph/` (details and the full API in its `README.md`).
 | `code-graph.sh status` | Show the URL, database and refresh command, or `Stopped` |
 | `code-graph.sh stop` | Stop the server |
 
-The database defaults to `<project>/Library/codeindex.sqlite`. The host project's SystemIndex
-gives the exact start command, including its refresh command.
+The database defaults to `<project>/Library/codeindex.sqlite`, built by the core
+[[16_UnityTools|`Tools/unity-tools/codeindex.py`]]. Run `start` from the project root: run from
+`Tools/code-graph/` itself, that folder becomes the project, and `start` warns that no database
+exists there.
+
+`--refresh-cmd` is optional. Without it, the refresh button runs `codeindex.py build --force` for the
+same project and database; `--refresh-cmd ""` hides the button. Pass a command line, not a
+description: it runs from the project root, split like a shell command but without a shell.
 
 ## The page
 
@@ -28,8 +34,8 @@ gives the exact start command, including its refresh command.
   node is a type outside the indexed sources (Unity, .NET).
 - **Details**: kind, namespace, assembly, `file:line` (click to copy), bases, derived types and
   a filterable member list.
-- **Force refresh index**: shown when the server was started with `--refresh-cmd`. It runs that
-  command (normally a forced codeindex build), shows progress, and reloads the page's data when
+- **Force refresh index**: shown unless the server was started with `--refresh-cmd ""`, even when
+  the database is missing. It runs the refresh command (by default a forced codeindex build), shows progress, and reloads the page's data when
   it finishes. The page keeps working on the old index until the rebuild commits.
 
 ## For the agent

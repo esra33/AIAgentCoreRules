@@ -79,7 +79,7 @@ class GraphHandler(http.server.BaseHTTPRequestHandler):
             self._send_json({'error': 'missing %s: 1 header' % REFRESH_HEADER}, 403)
             return
         if not self._refresh.available:
-            self._send_json({'error': 'no refresh command configured (start with --refresh-cmd)'}, 409)
+            self._send_json({'error': 'no refresh command configured (started with --refresh-cmd "", or unity-tools/codeindex.py not found)'}, 409)
             return
         if not self._refresh.start():
             self._send_json(dict(self._refresh.state(), error='a refresh is already running'), 409)

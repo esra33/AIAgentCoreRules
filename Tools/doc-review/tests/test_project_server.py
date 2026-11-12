@@ -38,6 +38,17 @@ class ProjectPreviewTests(unittest.TestCase):
         self.assertEqual(tabs[2]['file'], 'Design.md')
         self.assertIn('Pending generation', tabs[3]['content'])
 
+    def test_milestoneReportTabInsertedAfterPlanBeforeFixedTabs(self):
+        directory = self.root / 'Alpha'
+        (directory / 'V0Summary.md').write_text('# V0 Summary\nDone.')
+        state = project_server.feature_state.load_state(directory)
+        state['milestone_reports'] = [{'label': 'V0 Summary', 'path': 'V0Summary.md'}]
+        (directory / 'state.json').write_text(json.dumps(state))
+        tabs = project_server.project_tabs(self.root, directory)
+        titles = [tab['title'] for tab in tabs]
+        self.assertEqual(titles, ['Home', 'Plan', 'V0 Summary'] + list(project_server.TITLES[2:]))
+        self.assertEqual(tabs[2]['file'], 'V0Summary.md')
+
     def test_rejectsFeatureAndArtifactTraversal(self):
         with self.assertRaises(ValueError):
             project_server.feature_path(self.root, '../Elsewhere')

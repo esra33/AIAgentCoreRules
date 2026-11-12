@@ -17,4 +17,4 @@ steps:
   - "Reply with one line: the logged count, then continue in the new direction."
 ```
 
-An iteration is a decision, not a mistake — use /inaccuracy for agent errors.
+An iteration is a decision, not a mistake — agent errors are logged by the agent itself (`note --kind inaccuracy --source agent`).

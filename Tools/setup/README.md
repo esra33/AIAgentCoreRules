@@ -1,23 +1,41 @@
 # Setup
 
 `install.py` wires AIAgentCoreRules and the host AI metadata into a host project. Stock
-`python3`, no packages. Run it from anywhere inside the project — the project root is the main
+`python3`, no packages. `install.sh` is the terminal entry point for it: run it with any shell
+(bash, zsh, sh — it re-runs itself under bash), never `source` it. Run it from anywhere inside
+the project — the project root is the main
 checkout of the git repository you are in, or the nearest folder holding `CLAUDE.md` outside git
 (`--project <path>` overrides). `project_root.py` holds that lookup; the session tracker uses the
 same module, so a new project needs no extra configuration for its reports to land in the right place.
+Inside a Claude Code session (`!` prefix or a hook), `CLAUDE_PROJECT_DIR` takes precedence over
+the cwd, so the installer targets the session's project. To install into another project from
+there, pass `--project <path>`.
 
 ```bash
-S=GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.py
-python3 $S check                       # what install would change
-python3 $S                             # install (same as `install`)
-python3 $S worktrees [--json]          # linked worktrees: branch, dirty, ahead/behind, from_upstream
-python3 $S prepare-worktree <path>     # add the symlinks to a worktree made by hand
+cd <project>
+<core>/Tools/setup/install.sh check                   # what install would change
+<core>/Tools/setup/install.sh                         # install (same as `install`)
+<core>/Tools/setup/install.sh --agent codex           # options work without the subcommand too
+<core>/Tools/setup/install.sh worktrees [--json]      # linked worktrees: branch, dirty, ahead/behind, from_upstream
+<core>/Tools/setup/install.sh prepare-worktree <path> # add the symlinks to a worktree made by hand
 ```
+
+`<core>` is either the clone of AIAgentCoreRules or its linked copy,
+`GitIgnoredExternals/AIAgentCoreRules`. `python3 <core>/Tools/setup/install.py …` takes the same
+arguments. `INSTALL_PYTHON=<interpreter>` picks another Python for `install.sh`.
+
+**First install.** When the project has no `GitIgnoredExternals/` (or `GitIgnoreExternals/`)
+holding the core yet, `install` links the checkout it runs from as
+`GitIgnoredExternals/AIAgentCoreRules` (`check` reports it as `core: link`, and lists skill links
+only once the link exists). It warns when git does not ignore that folder, and refuses to run
+with the AIAgentCoreRules repository itself (or one of its worktrees) as the project — run it
+from inside the project, or pass `--project <path>`, which must be an existing folder.
 
 ## What install does
 
 | Step | Source | Result |
 |---|---|---|
+| Core link | the running core checkout | `GitIgnoredExternals/AIAgentCoreRules` → the checkout, only when no core layer is linked |
 | Settings | `settings.core.json`, then each layer's `Setup/settings.host.json` | merged into `.claude/settings.json` (backup: `settings.json.bak`) |
 | Skills | every `<layer>/Skills/<name>/SKILL.md` | `.claude/skills/<name>` → `../../GitIgnoredExternals/<layer>/Skills/<name>` |
 | CLAUDE.md | — | created with core imports and new host imports if missing; missing imports reported, never edited |
@@ -35,8 +53,10 @@ there or from root `AIMetaData/`. Merge rules:
 objects merge key by key, lists of plain values are unioned, other values are set, and hooks are
 matched by command — an existing hook with the same command is left alone. Nothing else is deleted:
 a skill link that points elsewhere is reported as a conflict and kept. The one exception is a
-dangling skill link into a layer's `Skills/` folder (a renamed or deleted skill): it is reported
-as `skills: prune stale <name>` and removed (`check` only reports it).
+dangling skill link into a layer's `Skills/` folder (a renamed, deleted or moved skill): it is
+reported as `skills: prune stale <name>` and removed (`check` only reports it). Pruning runs
+before linking, so a skill that moved to another layer (e.g. a skill moved host → core) is re-linked
+to its new layer in the same run instead of reported as a conflict.
 
 
 ## Codex setup
@@ -45,8 +65,8 @@ Claude remains the default. Select Codex explicitly to link every layer's existi
 into `.agents/skills/` and create a minimal `AGENTS.md` only when it does not already exist:
 
 ```bash
-python3 GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.py check --agent codex
-python3 GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.py install --agent codex
+GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.sh check --agent codex
+GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.sh install --agent codex
 ```
 
 Use the actual externals folder spelling: both `GitIgnoredExternals/` and `GitIgnoreExternals/`

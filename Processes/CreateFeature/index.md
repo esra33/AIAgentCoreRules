@@ -60,7 +60,7 @@ not authorize direct edits to generated Progress Markdown.
 progress_file:
   create:     "At the start of Phase 1, use feature-state create; never recreate an existing JSON or legacy feature."
   on_session: "Add the current session folder name (from the Session tracking block) to `sessions` the first time this session writes the file. Readers match entries by the id8 suffix, so a later lane rename does not break them."
-  on_gate:    "Append the phase_handoff block (below) under 'Gates Passed', set current_phase to the next phase, clear the Checkpoint section, update artifacts and the sources_of_truth versions. If this phase added or split a task beyond Phase 1's TaskList.md (e.g. Phase 3 splitting T2 into T2 + T16), update TaskList.md and state.json's `tasks` array in this same gate — the TDD's Development Plan alone is not enough; all three must list the same tasks before the gate is recorded."
+  on_gate:    "Append the phase_handoff block (below) under 'Gates Passed', set current_phase to the next phase, clear the Checkpoint section, update artifacts and the sources_of_truth versions from this session's last publish or explicit read — never fetch an external page only to refresh its version (local-first, see ExternalDocPass). If this phase added or split a task beyond Phase 1's TaskList.md (e.g. Phase 3 splitting T2 into T2 + T16), update TaskList.md and state.json's `tasks` array in this same gate — the TDD's Development Plan alone is not enough; all three must list the same tasks before the gate is recorded."
   mid_phase:  "/checkpoint replaces the Checkpoint section — where work stopped and what comes next."
   on_step:    "Starting a step (its key: 1a, Step 3, Category 2) → set it `in_progress` under `step_status:`; the engineer acknowledging it → `done`. When a phase starts, replace the block with only that phase's steps — keys like 'Step 1' repeat across phases. The doc-review Progress tab reads this block (and Sub-phase 1b's `tdd_sections:`) as the truth; a block that is missing falls back to guessing from checkpoint.done and the TDD text."
   state_blocks: "Feature state (batches, pull_requests, step_status, tdd_sections) lives in state.json. Extend the shared versioned schema and validated commands for new state; never add authoritative Markdown blocks."
@@ -107,15 +107,15 @@ phases:
     file: ./Phase2_Discovery.md
     goal: Load rules, explore codebase, confirm all dependencies are visible
     gate: Discovery report approved — no missing source files
-    report: GameProgressSaveSlim_Discovery.md
-    recommended_agent: explore        # use /discover <SystemName> for targeted area surveys
+    report: <FeatureName>_Discovery.md
+    recommended_agent: explore        # one Explore agent per system for targeted area surveys
     recommended_model: haiku          # pure search, no generation
 
   3_design:
     file: ./Phase3_Design.md
     goal: Reconcile the TDD with Discovery — file plan, missing contracts, Phase 3 TBDs, corrections — written back into the TDD (no separate design doc, no new diagrams)
     gate: Design delta approved (or confirmed empty) — NO CODE WRITTEN BEFORE THIS GATE
-    report: GameProgressSaveSlim_Design.md
+    report: <FeatureName>_Design.md
     recommended_agent: plan
     recommended_model: sonnet
 
@@ -123,15 +123,15 @@ phases:
     file: ./Phase4_Implementation.md
     goal: Write code file-by-file, published per task in small batch PRs (/publish-batch) the engineer reviews and merges
     gate: All files written and engineer-reviewed
-    report: GameProgressSaveSlim_Implementation.md
+    report: <FeatureName>_Implementation.md
     recommended_agent: general-purpose
-    recommended_model: sonnet         # run /audit on each file before presenting it
+    recommended_model: sonnet         # cslint clean per file before presenting it; one /audit per batch
 
   5_unit_tests:
     file: ./Phase5_UnitTests.md
     goal: JSON deserialization tests + behavior and boundary tests traced to UseCases.md
     gate: All tests passing, TBD cases logged as follow-up tasks
-    report: GameProgressSaveSlim_UnitTests.md
+    report: <FeatureName>_UnitTests.md
     recommended_agent: general-purpose
     recommended_model: sonnet
 
@@ -139,17 +139,17 @@ phases:
     file: ./Phase6_Integration.md
     goal: Wire feature into factories, registries, manifests; run required tools
     gate: Project compiles, all integration steps confirmed
-    report: GameProgressSaveSlim_Integration.md
-    recommended_agent: explore        # verify integration points exist before editing
-    recommended_model: haiku
+    report: <FeatureName>_Integration.md
+    recommended_agent: general-purpose  # edits registries/manifests and runs generators — Explore is read-only
+    recommended_model: sonnet
 
   7_verification:
     file: ./Phase7_Verification.md
     goal: Final rules compliance pass across all files
     gate: Engineer confirms feature complete
-    report: GameProgressSaveSlim_Verification.md
-    recommended_agent: explore        # grep for rule violations, no generation needed
-    recommended_model: haiku
+    report: <FeatureName>_Verification.md
+    recommended_agent: general-purpose  # full /audit judgement review; mechanical tags are the cslint hook's
+    recommended_model: sonnet
 
   8_retrospective:
     file: ./Phase8_Retrospective.md
@@ -165,6 +165,7 @@ consumers:   # renaming or renumbering a phase means updating every one of these
   progress_view_tests: "Tools/doc-review/tests/test_progress_view.py fixtures"
   retrospective: "Phase8_Retrospective.md `phase_N_<name>` keys"
   in_flight: "`current_phase` in every in-flight <Feature>_Progress.md"
+  phase_models: "Tools/session-lifecycle/session_lifecycle.py phase_models() reads each phase's recommended_model with '^\\s+recommended_model:\\s*(\\w+)' — keep the value a bare alias on the same line"
 ```
 
 ---
@@ -198,11 +199,11 @@ expected_loads:
   - "this index and the phase file for the session's phase"
   - "the rule files the phase names (Phase 4 re-reads CodingStandards and ArchitecturalPrinciples)"
 expected_tools:
-  4_implementation: ["/audit per file, before it is presented", typecheck.py, "/publish-batch per batch of C# files"]
-  5_unit_tests:     ["/audit on test files", typecheck.py]
-  6_integration:    ["/audit on changed files", typecheck.py]
+  4_implementation: ["/audit once per publish batch, before it is published", typecheck.py, "/publish-batch per batch of C# files"]
+  5_unit_tests:     ["/audit once over the test files", typecheck.py]
+  6_integration:    ["/audit once over the changed files", typecheck.py]
   7_verification:   ["/audit over all created and modified files"]
-missed_audit: "A file written in phases 4–6 without an /audit run, or a Gate 7 without the full run, is a router miss."
+missed_audit: "A file written in phases 4–6 that no /audit run covered, an audit applied inline instead of through the Skill tool (a self-review), or a Gate 7 without the full run, is a router miss."
 ```
 
 ---

@@ -78,6 +78,14 @@ def project_tabs(root, directory=None):
                        'path': path}
                 tabs.append(tab)
 
+        # Add milestone-report tabs (ad hoc summaries within a phase, e.g. a V-stage) in registration order
+        for report in state.get('milestone_reports', []):
+            path = artifact_path(directory, report.get('path'))
+            if path and path.is_file():
+                tab = {'title': report['label'], 'kind': 'md', 'file': str(path.relative_to(directory.resolve())),
+                       'path': path}
+                tabs.append(tab)
+
     # Add remaining fixed tabs (TDD, GDD, diagrams, performance)
     for title, role in zip(TITLES[2:], ROLES[1:]):
         tab = {'title': title, 'kind': 'md', 'file': '#' + role, 'path': root, 'content': 'Pending generation or data not found yet.'}

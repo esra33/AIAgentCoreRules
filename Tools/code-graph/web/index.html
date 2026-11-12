@@ -469,7 +469,11 @@
 
   loadStatus();
   loadTree();
-  api('/api/refresh').then((refresh) => { if (refresh.state !== 'idle') showRefreshState(refresh); }).catch(() => {});
+  // /api/refresh answers even when the DB is missing (/api/status does not) -- the case the button exists for.
+  api('/api/refresh').then((refresh) => {
+    $('refresh').hidden = !refresh.available;
+    if (refresh.state !== 'idle') showRefreshState(refresh);
+  }).catch(() => {});
   const initial = fromHash();
   if (initial) showType(initial, false);
 })();

@@ -14,7 +14,8 @@ Subcommands:
     worktrees          List the project's linked worktrees with branch, dirty state, and commits
                        ahead of the current branch (used by /land-worktree).
 
-The core layer lives in <project>/GitIgnoredExternals/ (or GitIgnoreExternals/).
+The core layer lives in <project>/GitIgnoredExternals/ (or GitIgnoreExternals/). When the project has
+none, `install` links the core checkout this script runs from as GitIgnoredExternals/AIAgentCoreRules.
 Host layers may live there or in <project>/AIMetaData/. Each layer may ship:
     Skills/<name>/SKILL.md          linked to the selected agent's skills directory
     Setup/settings.host.json        merged after this layer's Tools/setup/settings.core.json
@@ -65,20 +66,57 @@ def find_project_root(start):
     return root
 
 
-def find_layers(root):
-    """Return [(name, path)] with the core layer first."""
+def externals_dirs(root):
     candidates = [os.path.join(root, name) for name in (EXTERNALS, "GitIgnoreExternals")]
     present = [path for path in candidates if os.path.isdir(path)]
     if len(present) > 1:
         raise RuntimeError("both GitIgnoredExternals and GitIgnoreExternals exist — keep one layer directory")
-    if not present:
+    return candidates, present
+
+
+def link_core(root, dry_run, log):
+    """Link this core checkout into a project that has no core layer yet. Returns the planned
+    (name, path) layer, or None when the project already has one."""
+    _, present = externals_dirs(root)
+    externals = present[0] if present else os.path.join(root, EXTERNALS)
+    if present:
+        for name in os.listdir(externals):
+            path = os.path.join(externals, name)
+            if name == CORE_NAME or os.path.realpath(path) == CORE_ROOT:
+                return None
+    core_git = project_root.git(["rev-parse", "--path-format=absolute", "--git-common-dir"], CORE_ROOT)
+    core_repo = os.path.realpath(os.path.dirname(core_git)) if core_git else CORE_ROOT
+    real_root = os.path.realpath(root)
+    if real_root == core_repo or os.path.commonpath([real_root, CORE_ROOT]) == CORE_ROOT:
+        raise RuntimeError(f"{root} is the {CORE_NAME} checkout itself — run from inside your project or pass --project <path>")
+    link = os.path.join(externals, CORE_NAME)
+    if os.path.lexists(link):
+        raise RuntimeError(f"{link} exists but is not a directory — remove it or link {CORE_ROOT} there by hand")
+    log.append(f"core: link {os.path.relpath(link, root)} -> {CORE_ROOT}")
+    ignored = subprocess.run(["git", "check-ignore", "-q", os.path.relpath(link, root)], cwd=root,
+                             capture_output=True)
+    if ignored.returncode == 1:
+        log.append(f"core: WARNING {os.path.basename(externals)}/ is not ignored by git — add *GitIgnore* to your global gitignore")
+    if not dry_run:
+        os.makedirs(externals, exist_ok=True)
+        os.symlink(CORE_ROOT, link)
+    return (CORE_NAME, link)
+
+
+def find_layers(root, planned_core=None):
+    """Return [(name, path)] with the core layer first. planned_core is a core link that a dry
+    run reported but did not create."""
+    candidates, present = externals_dirs(root)
+    if not present and not planned_core:
         raise RuntimeError(f"{candidates[0]} or {candidates[1]} not found — link AIAgentCoreRules first (Documentation/01_Setup.md)")
-    externals = present[0]
+    externals = present[0] if present else os.path.dirname(planned_core[1])
     layers = []
-    for name in sorted(os.listdir(externals)):
+    for name in sorted(os.listdir(externals)) if present else []:
         path = os.path.join(externals, name)
         if os.path.isdir(path):
             layers.append((name, path))
+    if planned_core and planned_core not in layers:
+        layers.append(planned_core)
     host_path = os.path.join(root, HOST_NAME)
     if os.path.isdir(host_path):
         if host_layers(layers):
@@ -241,6 +279,8 @@ def install_settings(root, layers, dry_run, log):
 
 def install_skills(root, layers, dry_run, log, agent="claude"):
     skills_dir = os.path.join(root, ".agents" if agent == "codex" else ".claude", "skills")
+    # Prune first, so a skill that moved to another layer is re-linked in this same run.
+    pruned = prune_stale_skills(skills_dir, layers, dry_run, log)
     claimed = {}
     for layer_name, layer_path in layers:
         layer_skills = os.path.join(layer_path, "Skills")
@@ -255,7 +295,7 @@ def install_skills(root, layers, dry_run, log, agent="claude"):
             claimed[skill] = layer_name
             link = os.path.join(skills_dir, skill)
             target = os.path.relpath(os.path.join(layer_skills, skill), skills_dir)
-            if os.path.lexists(link):
+            if os.path.lexists(link) and skill not in pruned:
                 if os.path.realpath(link) != os.path.realpath(os.path.join(layer_skills, skill)):
                     log.append(f"skills: CONFLICT {link} exists and does not point at {layer_name} — left as is")
                 continue
@@ -263,13 +303,14 @@ def install_skills(root, layers, dry_run, log, agent="claude"):
             if not dry_run:
                 os.makedirs(skills_dir, exist_ok=True)
                 os.symlink(target, link)
-    prune_stale_skills(skills_dir, layers, dry_run, log)
 
 
 def prune_stale_skills(skills_dir, layers, dry_run, log):
-    """Remove dangling links into a layer's Skills/ folder, left behind by a renamed or deleted skill."""
+    """Remove dangling links into a layer's Skills/ folder, left behind by a renamed, deleted or
+    moved skill. Returns the pruned names (also in a dry run, where nothing is unlinked)."""
+    pruned = set()
     if not os.path.isdir(skills_dir):
-        return
+        return pruned
     layer_skill_dirs = {os.path.normpath(os.path.join(path, "Skills")) for _, path in layers}
     for name in sorted(os.listdir(skills_dir)):
         link = os.path.join(skills_dir, name)
@@ -279,8 +320,10 @@ def prune_stale_skills(skills_dir, layers, dry_run, log):
         if os.path.dirname(target) not in layer_skill_dirs:
             continue
         log.append(f"skills: prune stale {name} (target {os.readlink(link)} is gone)")
+        pruned.add(name)
         if not dry_run:
             os.unlink(link)
+    return pruned
 
 
 def install_claude_md(root, dry_run, log, imports=CORE_IMPORTS):
@@ -416,8 +459,8 @@ def cmd_worktrees(args, root):
 # ---------------------------------------------------------------------------------------------
 
 def cmd_install(args, root):
-    layers = find_layers(root)
     log = []
+    layers = find_layers(root, link_core(root, args.dry_run, log))
     location = choose_host_location(args, root, layers)
     config = project_config.prepare_install(args, root)
     layers = scaffold_host(root, layers, location, args.dry_run, log)
@@ -451,6 +494,22 @@ def cmd_install(args, root):
     return 0
 
 
+def with_default_command(argv, commands):
+    """Insert `install` after the global options when no subcommand is given, so that
+    `install.py --agent codex` means `install.py install --agent codex`."""
+    index = 0
+    while index < len(argv):
+        if argv[index] == "--project":
+            index += 2
+        elif argv[index].startswith("--project="):
+            index += 1
+        else:
+            break
+    if index < len(argv) and (argv[index] in commands or argv[index] in ("-h", "--help")):
+        return argv
+    return argv[:index] + ["install"] + argv[index:]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--project", help="host project root (default: main checkout of the current git repo)")
@@ -476,12 +535,12 @@ def main():
     worktrees = sub.add_parser("worktrees", help="list linked worktrees and how they relate to the current branch")
     worktrees.add_argument("--json", action="store_true")
     worktrees.set_defaults(func=cmd_worktrees)
-    args = parser.parse_args()
-    if not args.command:
-        args = parser.parse_args(sys.argv[1:] + ["install"])
+    args = parser.parse_args(with_default_command(sys.argv[1:], sub.choices))
     try:
         start = args.project or os.environ.get("CLAUDE_PROJECT_DIR") or project_root.logical_cwd()
         root = os.path.realpath(args.project) if args.project else find_project_root(start)
+        if not os.path.isdir(root):
+            raise RuntimeError(f"project folder {root} does not exist")
         return args.func(args, root)
     except RuntimeError as error:
         print(f"error: {error}", file=sys.stderr)

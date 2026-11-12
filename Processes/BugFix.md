@@ -18,7 +18,7 @@ steps:
   2_context:
     - "SystemIndex: Read the Systems/ entry for every system on the failing path — common_gotchas first — before searching its source."
     - "A system that a survey, log or hypothesis implicates later gets the same treatment at that moment: read its entry before reading its code, not at fix time."
-    - "Locate the flow: codeindex.py where/members, usages.py for callers (/uses). Breadth → /discover."
+    - "Locate the flow: codeindex.py where/members, usages.py for callers. Breadth → an Explore agent."
     - "Recent history: git log --since=<first-seen build date> -- <files on the failing path>. A sibling fix may already explain the bug, or be missing from the reported build."
     - "Crash reports: read the full native trace (Android tombstone, iOS full crash log), not the summary stacktrace. Summary exports truncate the crashing thread (~64 frames) and can drop managed method names, so recursion depth and the actual cycle are only visible in the full trace. Name the cycle from the repeating frames, and treat a hypothesis built only from a truncated trace as unverified."
   3_hypotheses:
@@ -37,8 +37,8 @@ steps:
     - "Load rules by what the fix touches: CodingStandards always; ResourceManagementRules for subscriptions/timers/loads; MultyStepOperationsRules for async ordering."
     - "Smallest change that removes the cause. [SURG] — no drive-by refactors; list them as follow-ups instead."
   5b_audit:   # checkpoint — do not start step 6 until it has run
-    - "Run /audit on every changed file (fix, repro/debug tooling, and later the test file). Fix or report each violation."
-    - "Self-review is not a substitute: /end-session flags a skipped audit as a router miss."
+    - "Run /audit once over every changed C# file (fix, repro/debug tooling, and later the test file) — Skill tool, it forks a fresh subagent; wait for its report. Fix or report each violation. cslint already checked the mechanical tags per edit."
+    - "Self-review is not a substitute: applying the audit brief inline in this context counts as skipped, and /end-session flags a skipped audit as a router miss."
   6_test:
     - "Load TestingRules.md and the host project's testing setup."
     - "Write one regression test that fails without the fix and passes with it. If the bug cannot be unit-tested (timing, platform, Editor-only), write the manual repro steps instead and say why."
@@ -72,6 +72,8 @@ Detours: when the engineer asks for side work mid-bug (for example a repro tool 
 command), record the lane change with the lifecycle `set --lane small_task` command before
 starting it, then `set --lane bug_fix` when you return. That keeps metrics and the router check
 accurate. Follow SmallTask.md for the detour, including its own /audit.
+A PR-review follow-up counts as a detour: load SmallTask.md and run /audit before its commit,
+even when a plan file was approved.
 
 Lane switch: entering this lane from another one in the same session (e.g. a PR review that
 turns into a bug), offer the split as a choice before step 1: continue here, or

@@ -76,6 +76,14 @@ class RouterTraceTests(unittest.TestCase):
         self.assertEqual([(load["file"], load["via"]) for load in self.trace()],
                          [("Layer/Rules/BugFix.md", "main · Bash → Read")])
 
+    def test_runnable_tool_count_ignores_heredoc_and_quoted_text(self):
+        """Retro a08926ea #1: doc strings in heredoc edit scripts inflated codeindex × 59."""
+        heredoc = "python3 - <<'EOF'\ns = 'run python3 codeindex.py where X'\npython3 codeindex.py where X\nEOF"
+        self.assertEqual(session_lifecycle.runnable_tool_calls(heredoc), {})
+        self.assertEqual(session_lifecycle.runnable_tool_calls('echo "use python3 usages.py Foo instead"'), {})
+        self.assertEqual(session_lifecycle.runnable_tool_calls(
+            "python3 GitIgnoredExternals/AIAgentCoreRules/Tools/unity-tools/codeindex.py where X"), {"codeindex.py": 1})
+
     def test_breakdown_counts_only_md_reads_as_loads(self):
         roots = [os.path.join(self.tmp, "Ext", "Layer")]
         self.assertEqual(token_breakdown.classify("Read", {"file_path": os.path.join(self.rules, "tool.py")}, roots),

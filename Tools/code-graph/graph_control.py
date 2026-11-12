@@ -6,12 +6,15 @@ Modelled on doc-review's preview_control.py. Runtime state lives in <project>/.c
 refresh.log and launcher.lock (serialises concurrent start/stop calls). `start` reuses a healthy
 server and prints its URL; it restarts the server when the tool code is newer than the running
 process, or when --db / --refresh-cmd differ from what it was started with. The server outlives
-the agent session -- do not stop it at session end.
+the agent session -- do not stop it at session end. Without --refresh-cmd the "Force refresh index"
+button runs the sibling unity-tools/codeindex.py build --force on the same project and DB;
+--refresh-cmd "" hides the button.
 """
 import argparse
 import fcntl
 import json
 import os
+import shlex
 from pathlib import Path
 import signal
 import subprocess
@@ -23,6 +26,15 @@ TOOL_DIR = Path(__file__).resolve().parent
 RUNTIME_DIR_NAME = '.code-graph'
 # Python never reloads modules, so a long-running server keeps serving the code it started with.
 TOOL_FILES = ('*.py', 'web/*')
+CODEINDEX_SCRIPT = TOOL_DIR.parent / 'unity-tools' / 'codeindex.py'
+
+
+def default_refresh_cmd(project, db, codeindex=CODEINDEX_SCRIPT):
+    """Rebuild the exact DB the server reads; None when codeindex.py is not shipped alongside."""
+    if not Path(codeindex).is_file():
+        return None
+    return shlex.join([sys.executable, str(codeindex), 'build', '--force', '--project', str(project),
+                       '--db', str(db)])
 
 
 def healthy(state, project):
@@ -82,9 +94,12 @@ def launch(project, db, refresh_cmd, runtime, state_path):
     raise RuntimeError('Code Graph startup failed; see ' + str(log_path))
 
 
-def control(action, project, db=None, refresh_cmd=None, out=print):
+def control(action, project, db=None, refresh_cmd=None, out=print,
+            warn=lambda message: print(message, file=sys.stderr)):
     project = Path(project).resolve()
     db = Path(db).resolve() if db else project / 'Library' / 'codeindex.sqlite'
+    if refresh_cmd is None:
+        refresh_cmd = default_refresh_cmd(project, db)
     runtime = project / RUNTIME_DIR_NAME
     os.umask(0o077)
     runtime.mkdir(exist_ok=True)
@@ -109,6 +124,9 @@ def control(action, project, db=None, refresh_cmd=None, out=print):
                 stop(state, project, state_path)
             out('Stopped' if running else 'No Code Graph server running')
             return None
+        if not db.is_file():
+            warn('warning: no codeindex DB at %s -- run from the project root or pass --project '
+                 '(the page\'s Force refresh index button builds it)' % db)
         reasons = []
         if running and stale(state):
             reasons.append('tool code changed')
@@ -130,7 +148,9 @@ def main():
     parser.add_argument('action', choices=('start', 'stop', 'status'))
     parser.add_argument('--project', default='.')
     parser.add_argument('--db', help='codeindex SQLite DB (default: <project>/Library/codeindex.sqlite)')
-    parser.add_argument('--refresh-cmd', help='command the "Force refresh index" button runs (cwd = project)')
+    parser.add_argument('--refresh-cmd', help='command the "Force refresh index" button runs, run from the project '
+                        'root (default: unity-tools/codeindex.py build --force for this project and DB; "" hides '
+                        'the button)')
     args = parser.parse_args()
     try:
         control(args.action, args.project, args.db, args.refresh_cmd)

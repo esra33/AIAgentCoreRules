@@ -4,6 +4,7 @@
 """
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,16 @@ class StaleTests(unittest.TestCase):
         self.assertTrue(graph_control.stale({}, self.tools))
 
 
+class DefaultRefreshCmdTests(unittest.TestCase):
+    def test_rebuilds_the_served_project_and_db(self):
+        command = graph_control.default_refresh_cmd(Path('/p r'), Path('/p r/Library/x.sqlite'))
+        self.assertEqual(shlex.split(command)[1:], [str(graph_control.CODEINDEX_SCRIPT), 'build', '--force',
+                                                    '--project', '/p r', '--db', '/p r/Library/x.sqlite'])
+
+    def test_none_without_codeindex_alongside(self):
+        self.assertIsNone(graph_control.default_refresh_cmd(Path('/p'), Path('/p/db'), codeindex='/missing.py'))
+
+
 class LifecycleTests(unittest.TestCase):
     def setUp(self):
         self.project = Path(tempfile.mkdtemp()).resolve()
@@ -71,7 +82,7 @@ class LifecycleTests(unittest.TestCase):
 
         status = self.control('status')
         self.assertEqual(status['pid'], first['pid'])
-        self.assertIn('refresh: (not configured)', self.output[-1])
+        self.assertIn('codeindex.py build --force --project', self.output[-1])
 
         refresh_cmd = '%s -c "print(1)"' % sys.executable
         restarted = self.control('start', refresh_cmd=refresh_cmd)
@@ -84,6 +95,22 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.output[-1], 'Stopped')
         self.assertIsNone(self.control('status'))
         self.assertFalse((self.project / '.code-graph' / 'server.json').exists())
+
+    def test_empty_refresh_cmd_hides_the_button(self):
+        state = self.control('start', refresh_cmd='')
+        self.control('status')
+        self.assertIn('refresh: (not configured)', self.output[-1])
+        with urlopen(state['url'] + 'api/refresh', timeout=5) as response:
+            self.assertFalse(json.load(response)['available'])
+
+    def test_missing_db_warns_and_refresh_stays_available(self):
+        (self.project / 'Library' / 'codeindex.sqlite').unlink()
+        warnings = []
+        state = self.control('start', warn=warnings.append)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('no codeindex DB at', warnings[0])
+        with urlopen(state['url'] + 'api/refresh', timeout=5) as response:
+            self.assertTrue(json.load(response)['available'])
 
     def test_stop_when_nothing_runs(self):
         self.control('stop')

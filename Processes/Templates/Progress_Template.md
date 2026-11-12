@@ -18,7 +18,7 @@ artifacts:      []                  # files in this folder the next phase needs,
 sessions:       []                  # session folder names that worked on this feature — Phase 8 reads these
 sources_of_truth: []                # documents edited outside this folder, with the version last read, e.g.
                                     #   - {kind: confluence, id: "4787830785", title: "<Feature> TDD", version: 14}
-                                    # /resume-work compares versions; update the version at every /checkpoint and gate
+                                    # version recorded at publish / explicit read; /resume-work does not fetch it (local-first)
 pull_requests:                      # Phase 4: PR numbers per TDD V-phase; the doc-review Progress tab shows their comments, e.g.
                                     #   V0: [9923, 9930]
 batches:                            # Phase 4: per task id, written by /publish-batch; batch <merged + 1> of <len(plan)> is current, e.g.

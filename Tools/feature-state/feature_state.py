@@ -31,7 +31,8 @@ def empty_state(feature):
             "current_phase": "1_intake", "status": "in_progress", "updated_at": now(),
             "artifacts": [], "sessions": [], "sources_of_truth": [], "pull_requests": {},
             "batches": {}, "step_status": {}, "tdd_sections": {}, "checkpoint": {},
-            "gates": [], "closed": [], "tasks": [], "artifact_roles": {}, "phase_reports": {}, "legacy_notes": []}
+            "gates": [], "closed": [], "tasks": [], "artifact_roles": {}, "phase_reports": {},
+            "milestone_reports": [], "legacy_notes": []}
 
 
 def validate_state(data):
@@ -45,7 +46,7 @@ def validate_state(data):
         raise StateError("feature must be a nonempty string")
     if data.get("status") not in STATUSES or data.get("current_phase") not in PHASES:
         raise StateError("invalid status or current_phase")
-    for key in ("artifacts", "sessions", "sources_of_truth", "gates", "closed", "tasks", "legacy_notes"):
+    for key in ("artifacts", "sessions", "sources_of_truth", "gates", "closed", "tasks", "milestone_reports", "legacy_notes"):
         if not isinstance(data.get(key), list):
             raise StateError(f"{key} must be a list")
     for key in ("checkpoint", "pull_requests", "batches", "step_status", "tdd_sections", "artifact_roles", "phase_reports"):
@@ -74,7 +75,13 @@ def validate_state(data):
     for phase_key in data["phase_reports"]:
         if phase_key not in PHASES:
             raise StateError("phase_reports keys must be valid phase keys")
-    for path in list(data["artifact_roles"].values()) + list(data["phase_reports"].values()) + data["artifacts"]:
+    for report in data["milestone_reports"]:
+        if not isinstance(report, dict) or not isinstance(report.get("label"), str) or not report["label"] or not isinstance(report.get("path"), str):
+            raise StateError("milestone_reports require a nonempty label and a path")
+    if len({report["label"] for report in data["milestone_reports"]}) != len(data["milestone_reports"]):
+        raise StateError("duplicate milestone_reports labels")
+    for path in (list(data["artifact_roles"].values()) + list(data["phase_reports"].values())
+                 + [report["path"] for report in data["milestone_reports"]] + data["artifacts"]):
         if not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts:
             raise StateError("artifact paths must stay within the feature directory")
     return data
@@ -82,7 +89,10 @@ def validate_state(data):
 
 def load_state(feature_dir):
     directory = Path(feature_dir)
-    state = validate_state(json.loads((directory / "state.json").read_text()))
+    raw = json.loads((directory / "state.json").read_text())
+    if isinstance(raw, dict):
+        raw.setdefault("milestone_reports", [])
+    state = validate_state(raw)
     if state["feature"] != directory.name:
         raise StateError("feature identity must match its directory name")
     return state
@@ -256,6 +266,17 @@ def update_state(feature_dir, operation, payload, expected_revision):
             state["phase_reports"][phase] = path
             if path not in state["artifacts"]:
                 state["artifacts"].append(path)
+        elif operation == "milestone-report":
+            label, path = payload.get("label"), payload.get("path")
+            if not isinstance(label, str) or not label:
+                raise StateError("milestone-report requires a nonempty label")
+            if not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts:
+                raise StateError("artifact paths must stay within the feature directory")
+            reports = [report for report in state["milestone_reports"] if report["label"] != label]
+            reports.append({"label": label, "path": path})
+            state["milestone_reports"] = reports
+            if path not in state["artifacts"]:
+                state["artifacts"].append(path)
         elif operation in {"pr", "batch", "artifact", "task"}:
             if operation == "pr":
                 phase, number = payload["phase"], payload["number"]
@@ -295,7 +316,7 @@ def main():
         "task": "Add or update one task by id (merge, no delete). Payload: "
                 '{"id": "T<n>", "title": "...", "status": "todo|partial|done"}.',
     }
-    for command in ("get", "create", "checkpoint", "gate", "close", "reopen", "pr", "batch", "task", "artifact", "phase-report", "render", "migrate"):
+    for command in ("get", "create", "checkpoint", "gate", "close", "reopen", "pr", "batch", "task", "artifact", "phase-report", "milestone-report", "render", "migrate"):
         item = sub.add_parser(command, help=command_help.get(command), description=command_help.get(command))
         item.add_argument("directory", type=Path, nargs="?" if command == "migrate" else None)
         if command == "get":

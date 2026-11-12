@@ -63,7 +63,7 @@ routing; it loads the rule and process files they describe.
 ## Delegation
 
 Breadth goes to subagents. Any "where is X / which files / who implements Y" question is sent
-to an Explore subagent (or `/discover`), which returns a compact map. The main agent keeps its
+to an Explore subagent, which returns a compact map. The main agent keeps its
 context for reading the specific method bodies a conclusion depends on and for the reasoning
 itself. The failure mode being guarded against is not over-delegating — it is filling the main
 context with file listings and leaving no room for the analysis.

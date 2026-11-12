@@ -10,6 +10,7 @@ One folder per session under the reports root (default: <project>/GitIgnoreRepor
         retro.md       written by /end-session; its "## Applied" section tracks each proposal
         retro.html     rendered from retro.md (retro_page.py) — progress, per-proposal status, token charts
         tokens/        session-support per-session Markdown report
+        typecheck.json typecheck baseline, last .cs edit, end-check blocks, cslint counts (typecheck hooks)
 
 Subcommands:
     hook-start   SessionStart hook. Reads hook JSON on stdin, prints context for the agent.
@@ -17,7 +18,12 @@ Subcommands:
     hook-stop    Stop hook. Recompiles after a reply (throttled), for sessions that never exit.
     hook-prompt  UserPromptSubmit hook. After an idle gap past the prompt-cache TTL, notes the cost.
                  Warns once when the per-call context reaches 90% of the median session peak.
-    hook-bash    PreToolUse hook on Bash. Reminds the agent to Read rule files it cat/sed/head/tails.
+    hook-bash    PreToolUse hook on Bash. Reminds the agent to Read rule files it cat/sed/head/tails,
+                 and suggests codeindex/usages for a grep over C# for a type or member name.
+    hook-edit    PreToolUse hook on Edit|Write. First .cs edit of a session: typecheck baseline on the
+                 untouched tree, result to the agent. Every .cs edit: last_cs_edit in typecheck.json.
+    hook-lint    PostToolUse hook on Edit|Write. cslint on the edited .cs file's changed lines.
+    hook-stop-check  Stop hook (sync). Blocks once when a .cs file changed after the last typecheck run.
     set          Record name, lane, work type and title.
     note         Log an inaccuracy or iteration.
     compile      Refresh token report, router trace and metrics.md.
@@ -36,10 +42,12 @@ Hooks must never break a session: hook-* subcommands always exit 0.
 """
 
 import argparse
+import collections
 import datetime
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -65,7 +73,7 @@ LANES = ["small_task", "large_task", "bug_fix", "investigation", "feature", "oth
 WORK_TYPES = ["bug_fix", "small_feature", "large_feature", "feature", "question", "other"]
 LANE_WORK_TYPE = {"small_task": "small_feature", "large_task": "large_feature", "bug_fix": "bug_fix",
                   "investigation": "question", "feature": "feature", "other": "other"}
-RUNNABLE_TOOLS = ["typecheck.py", "codeindex.py", "usages.py"]
+RUNNABLE_TOOLS = ["typecheck.py", "codeindex.py", "usages.py", "unitysource.py", "cslint.py"]
 # CreateFeature working folders, relative to the project root (Processes/CreateFeature/index.md
 # working_folder). Override with SESSION_FEATURES_ROOT or --features-root.
 DEFAULT_FEATURES_DIR = os.path.join("Assets", "GitIgnoreAssets", "Features")
@@ -85,6 +93,10 @@ TRANSCRIPT_TAIL_BYTES = 512 * 1024
 # hook-prompt context-size warning (token_breakdown.context_warning_threshold): written on the first
 # warning, removed once the context drops below the threshold, so it fires once per crossing.
 CONTEXT_WARNING_MARKER = "context-warning.json"
+TYPECHECK_STATE = "typecheck.json"
+TYPECHECK_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(SCRIPT_PATH)), "unity-tools", "typecheck.py")
+BASELINE_TIMEOUT_SECONDS = 25   # hook timeout is 30; a run of Assembly-CSharp + dependents takes ~3 s
+LINT_MAX_ROWS = 15
 CONTEXT_ACTIVE_WINDOW_SECONDS = 60 * 60   # = perf_view.ACTIVE_WINDOW_SECONDS, so the tab and the hook agree
 # hook-bash (MR-20261016-05): a shell read of a rule file only reaches the router trace by inference.
 # Only at a command position (start, or after ; && || |), so a quoted or heredoc mention is silent.
@@ -92,6 +104,11 @@ SHELL_RULE_READ = re.compile(r"(?:^|[;&|]|\$\()\s*(?:cat|sed|head|tail)\b[^|;&\n
                              re.MULTILINE)
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\s*\2\s*$", re.MULTILINE | re.DOTALL)
 QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+# hook-bash (audit 2026-11-10): a grep for a C# type or member name, which codeindex/usages answer.
+GREP_PROGRAMS = ("grep", "egrep", "rg")
+GREP_VALUE_OPTIONS = ("-A", "-B", "-C", "-m", "-f", "-g", "--glob", "-t", "--type", "--include", "--exclude")
+CS_TARGET = re.compile(r"\.cs\b|(?:^|/)Assets(?:/|$)|^cs$|--type=cs|-tcs")
+TYPE_DECL_PATTERN = re.compile(r"\b(class|interface|enum|struct|record)\s+([A-Z]\w*)")
 # `file --to` targets (MR-20261016-06): folders next to the sessions root that background jobs
 # cannot Write into directly.
 FILE_TARGETS = ["MetaReviews"]
@@ -313,6 +330,25 @@ def transcript_started_at(transcript_path):
     return None
 
 
+def main_model(transcript_path):
+    """The model behind most of the transcript's assistant messages ('claude-sonnet-5'), or None."""
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
+    counts = collections.Counter()
+    with open(transcript_path, errors="replace") as handle:
+        for line in handle:
+            if '"model"' not in line:
+                continue
+            try:
+                message = json.loads(line).get("message")
+            except ValueError:
+                continue
+            model = message.get("model") if isinstance(message, dict) else None
+            if model and model != "<synthetic>":
+                counts[model] += 1
+    return counts.most_common(1)[0][0] if counts else None
+
+
 def import_roots(project_dir):
     """Directories imported by CLAUDE.md, plus their real paths (they are often symlinks)."""
     imports, roots = [], set()
@@ -386,10 +422,8 @@ def router_trace(state, project_dir):
                         targets = [path for path in [tool_input.get("file_path", "")] if path.endswith(".md")]
                     elif block.get("name") == "Bash":
                         command = tool_input.get("command", "")
-                        for tool in RUNNABLE_TOOLS:
-                            count = len(re.findall(r"python3?\s+\S*" + re.escape(tool), command))
-                            if count:
-                                tools[tool] = tools.get(tool, 0) + count
+                        for tool, count in runnable_tool_calls(command).items():
+                            tools[tool] = tools.get(tool, 0) + count
                         # Relative paths after `cd <dir>` resolve against that dir.
                         for cd_target in re.findall(r"\bcd\s+([^\s;&|]+)", command):
                             cd_target = os.path.expanduser(cd_target.strip("\"'"))
@@ -502,6 +536,7 @@ def render(folder, state, project_dir):
         "| --- | --- |",
         "| Session | `%s` |" % state["session_id"],
         "| Agent | %s |" % state.get("agent", "claude"),
+        "| Model | %s |" % (state.get("model") or "–"),
         "| Name | %s |" % (state.get("name") or "–"),
         "| Title | %s |" % (state.get("title") or "–"),
         "| Lane | %s |" % (state.get("lane") or "**not set**"),
@@ -545,6 +580,7 @@ def render(folder, state, project_dir):
         lines.append("| – | – | none | – |")
     lines += ["", "## Runnable tools", ""]
     lines += ["- `%s` × %d" % (tool, count) for tool, count in sorted(tools.items())] or ["- none run"]
+    lines += typecheck_lines(state)
     lines += breakdown_lines(state)
     with open(os.path.join(folder, "metrics.md"), "w") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -597,6 +633,23 @@ def breakdown_lines(state):
                      "{:,}".format(doc_review.get("tokens", 0)), "{:,}".format(doc_review.get("equivalent", 0)),
                      doc_review.get("round_trips", 0), measured.get("count", 0),
                      "{:,}".format(measured.get("tokens", 0)))]
+    return lines + missed_lines(breakdown.get("missed") or {})
+
+
+def missed_lines(missed):
+    """metrics.md subsection: lookups done by hand that code-graph, codeindex or usages answers."""
+    if not any(entry["count"] for entry in missed.values()):
+        return ["", "Missed index opportunities (code-graph / codeindex / usages): none."]
+    lines = ["", "### Missed index opportunities (estimated)", "",
+             "Lookups done by hand that code-graph, codeindex or usages answers. Tokens lost: each result minus "
+             "an index call (~%d tokens) × later calls." % token_breakdown.INDEX_CALL_TOKENS, "",
+             "| Kind | Count | Tokens lost | Round-trips lost |", "| --- | ---: | ---: | ---: |"]
+    for kind, entry in missed.items():
+        lines.append("| %s | %d | %s | %d |" % (kind, entry["count"], "{:,}".format(entry["tokens"]),
+                                                entry["round_trips"]))
+    for kind, entry in missed.items():
+        if entry["examples"]:
+            lines += ["", "%s:" % kind] + ["- %s" % example for example in entry["examples"]]
     return lines
 
 
@@ -606,12 +659,15 @@ def compile_folder(folder, state, project_dir):
     # A resumed session's transcript may predate tracking; report the real start.
     state["started_at"] = transcript_started_at(state.get("transcript_path")) or state["started_at"]
     state["agent"] = "codex" if codex_transcript.is_codex(state.get("transcript_path")) else "claude"
+    state["model"] = main_model(state.get("transcript_path"))
     state["tokens"] = token_report(folder, state)
+    state["typecheck"] = dict(load_typecheck(folder),
+                              runs=typecheck_runs(state.get("transcript_path"), state["session_id"]))
     try:   # estimates for the retro charts; best-effort like the token report
         if state["agent"] == "codex":
             raise ValueError("Detailed cost attribution and comparison are not yet supported for Codex")
         state["breakdown"] = token_breakdown.analyse(state.get("transcript_path"), state["session_id"],
-                                                     import_roots(project_dir)[1])
+                                                     import_roots(project_dir)[1], type_grep_suggestions)
         state["comparison"] = session_comparison(folder, state)
     except Exception as error:
         state["breakdown"] = {"error": str(error)}
@@ -677,7 +733,7 @@ def cmd_hook_start(args):
             "  python3 \"%s\" set --session-id %s --lane <%s> --work-type <%s> --title \"<short title>\""
             % (SCRIPT_PATH, session_id, "|".join(LANES), "|".join(WORK_TYPES)),
             "If the engineer named the session (/start-session <name>), also pass --name \"<name>\".",
-            "The engineer logs corrections with /inaccuracy and direction changes with /iteration.",
+            "The engineer logs direction changes with /iteration.",
             "When you retract a claim or the engineer rejects your approach, log it yourself at once:",
             "  python3 \"%s\" note --session-id %s --kind inaccuracy --source agent \"<what was wrong>\""
             % (SCRIPT_PATH, session_id),
@@ -1016,29 +1072,396 @@ def cmd_hook_prompt(args):
     return 0
 
 
+def _strip_prose(command):
+    """The command without heredoc bodies or quoted prose."""
+    # A quoted single word is a path argument and stays; quoted text with spaces is prose.
+    return QUOTED.sub(lambda m: m.group(0)[1:-1] if not re.search(r"\s", m.group(0)) else "''",
+                      HEREDOC.sub("", command))
+
+
 def shell_rule_reads(command):
     """Rule-file paths a command cat/sed/head/tails, ignoring heredoc bodies and quoted text."""
-    # A quoted single word is a path argument and stays; quoted text with spaces is prose.
-    command = QUOTED.sub(lambda m: m.group(0)[1:-1] if not re.search(r"\s", m.group(0)) else "''",
-                         HEREDOC.sub("", command))
-    return SHELL_RULE_READ.findall(command)
+    return SHELL_RULE_READ.findall(_strip_prose(command))
+
+
+def runnable_tool_calls(command):
+    """{tool: count} of the Runnable tools a command really runs. A `python3 codeindex.py ...`
+    inside a heredoc body or quoted text (an edit script, a doc string) is not a run."""
+    command = _strip_prose(command)
+    calls = {}
+    for tool in RUNNABLE_TOOLS:
+        count = len(re.findall(r"python3?\s+\S*" + re.escape(tool), command))
+        if count:
+            calls[tool] = count
+    return calls
+
+
+def _grep_segments(command):
+    """(pattern alternatives, paths and file filters) for each grep/egrep/rg in a command.
+    Quotes are honoured, so a `|` inside a pattern does not split it."""
+    try:
+        lexer = shlex.shlex(HEREDOC.sub("", command), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:   # unbalanced quotes: not worth guessing at
+        return []
+    segments, current = [], []
+    for token in tokens + [";"]:
+        if token and set(token) <= set(";&|()"):
+            if current:
+                segments.append(current)
+            current = []
+        else:
+            current.append(token)
+    found = []
+    for words in segments:
+        if os.path.basename(words[0]) not in GREP_PROGRAMS:
+            continue
+        patterns, operands, filters, k = [], [], [], 1
+        while k < len(words):
+            word = words[k]
+            if word in ("-e", "--regexp"):
+                patterns.append(words[k + 1] if k + 1 < len(words) else "")
+                k += 2
+                continue
+            if word in GREP_VALUE_OPTIONS:
+                filters.append(words[k + 1] if k + 1 < len(words) else "")
+                k += 2
+                continue
+            if word.startswith("-"):
+                filters.append(word)
+            else:
+                operands.append(word)
+            k += 1
+        if not patterns and operands:
+            patterns.append(operands.pop(0))
+        # A grep with no path reads stdin (`… | grep Foo`): output, not source. rg with no path
+        # searches the cwd, so it counts when a file filter (-t cs, -g *.cs) names C#.
+        if operands or (os.path.basename(words[0]) == "rg" and filters):
+            found.append((patterns, operands + filters))
+    return found
+
+
+def type_grep_suggestions(command):
+    """codeindex/usages commands for a grep over C# whose pattern is a type or member name:
+    `class|interface|enum|struct|record <Name>` → where/show, `[Name` → attributed, a bare
+    PascalCase name (optionally `Name(` or `Name<`) → usages. Free text gets nothing."""
+    suggestions = []
+    for patterns, targets in _grep_segments(command):
+        if not any(CS_TARGET.search(t) for t in targets) and "cs" not in targets:
+            continue
+        for pattern in patterns:
+            plain = re.sub(r"\\[sS][+*]?|\\b|\\<|\\>", " ", pattern)
+            for alternative in re.split(r"\\\||\|", plain):
+                alternative = alternative.replace("\\", "").strip()
+                decl = TYPE_DECL_PATTERN.search(alternative)
+                if decl:
+                    name = decl.group(2)
+                    suggestions.append(("codeindex.py where %s" % name, "codeindex.py show %s" % name))
+                    continue
+                attr = re.fullmatch(r"\[\s*([A-Z]\w*)\W*", alternative)
+                if attr and re.search(r"[a-z]", attr.group(1)):
+                    suggestions.append(("codeindex.py attributed %s" % attr.group(1),))
+                    continue
+                name = re.fullmatch(r"\.?([A-Z]\w*)\s*[(<]?\s*\)?", alternative)
+                if name and re.search(r"[a-z]", name.group(1)):
+                    suggestions.append(("usages.py %s" % name.group(1), "codeindex.py where %s" % name.group(1)))
+    unique = []
+    for suggestion in suggestions:
+        if suggestion not in unique:
+            unique.append(suggestion)
+    return unique[:3]
+
+
+def unity_tools_prefix():
+    """How to call the unity-tools scripts from the hook's cwd (the project root): a literal
+    relative path when the core sits inside the project, else absolute. Never a shell variable —
+    the worktree guard refuses `python3 $R/…`."""
+    tools = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "unity-tools")
+    relative = os.path.relpath(tools, os.getcwd())
+    return "python3 " + (tools if relative.startswith("..") else relative) + "/"
 
 
 def cmd_hook_bash(args):
     """PreToolUse hook on Bash: remind the agent to load rule and process files with Read when a
-    command cat/sed/head/tails one. Warns only; never blocks the command."""
+    command cat/sed/head/tails one, and suggest codeindex/usages for a type-shaped grep over C#.
+    Warns only; never blocks the command."""
     hook = {}
     try:
         hook = read_hook_input()
-        paths = shell_rule_reads((hook.get("tool_input") or {}).get("command", ""))
+        command = (hook.get("tool_input") or {}).get("command", "")
+        notes = []
+        paths = shell_rule_reads(command)
         if paths:
+            notes.append("Use the Read tool for rule, process, index and skill files (%s) so the "
+                         "router trace is exact; shell reads are only inferred." % ", ".join(paths))
+        lookups = type_grep_suggestions(command)
+        if lookups:
+            prefix = unity_tools_prefix()
+            notes.append("This grep looks up a C# name; the index answers it with file:start-end and full "
+                         "signatures: %s. Keep grep for free text." %
+                         "; ".join(" or ".join(prefix + c for c in s) for s in lookups))
+        if notes:
             print(json.dumps({"hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "additionalContext": "Use the Read tool for rule, process, index and skill files (%s) so the "
-                                     "router trace is exact; shell reads are only inferred." % ", ".join(paths)}}))
+                "hookEventName": "PreToolUse", "additionalContext": "\n".join(notes)}}))
     except Exception as error:   # a hook must never block a command
         hook_log(args, "bash", hook, "ERROR %s" % error)
     return 0
+
+
+# ---------------------------------------------------------------- typecheck + lint hooks (audit 2026-11-10, Part 3)
+
+def load_typecheck(folder):
+    """typecheck.json: {baseline, last_cs_edit, end_check_blocks, lint}. A sidecar, not session.json,
+    because the async hook-stop compile rewrites session.json and would drop a concurrent update."""
+    try:
+        with open(os.path.join(folder, TYPECHECK_STATE)) as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_typecheck(folder, data):
+    path = os.path.join(folder, TYPECHECK_STATE)
+    with open(path + ".tmp", "w") as handle:
+        json.dump(data, handle, indent=2)
+    os.replace(path + ".tmp", path)
+
+
+def unity_project_of(path):
+    """The Unity project (or worktree) root holding path, or None for a .cs file outside one."""
+    current = os.path.dirname(os.path.abspath(path))
+    while True:
+        if os.path.isfile(os.path.join(current, "ProjectSettings", "ProjectVersion.txt")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def cs_edit_target(hook):
+    """(file, Unity root) when an Edit/Write payload targets a .cs file inside a Unity project."""
+    path = (hook.get("tool_input") or {}).get("file_path") or ""
+    if not path.endswith(".cs"):
+        return None
+    root = unity_project_of(path)
+    return (path, root) if root else None
+
+
+def typecheck_command(root):
+    """The literal typecheck command for root: the project-relative path when the core is linked
+    in (worktrees symlink GitIgnoredExternals too), else absolute. Never a shell variable."""
+    relative = os.path.join("GitIgnoredExternals", "AIAgentCoreRules", "Tools", "unity-tools", "typecheck.py")
+    return "python3 " + (relative if os.path.isfile(os.path.join(root, relative)) else TYPECHECK_SCRIPT)
+
+
+def classify_typecheck(output):
+    """clean | failed: <assemblies> | nothing_checked | listed | background | error | unknown, from typecheck output."""
+    if re.search(r"^Would check \d+ assembl", output, re.MULTILINE):
+        return "listed"   # --list compiles nothing
+    if "type check clean" in output:
+        return "clean"
+    failed = re.search(r"^FAILED: (.+)$", output, re.MULTILINE)
+    if failed:
+        return "failed: " + failed.group(1).strip()
+    if re.search(r"Nothing to check|none belong to a generated|belong to a known assembly", output):
+        return "nothing_checked"
+    if re.search(r"running in background|Command running", output):
+        return "background"
+    if re.search(r"^error:", output, re.MULTILINE):
+        return "error"
+    return "unknown"
+
+
+def run_baseline(path, root):
+    """typecheck.py --files <path> on the tree as it is before the edit. Never raises."""
+    started = time.time()
+    record = {"when": now_iso(), "file": path, "root": root}
+    try:
+        result = subprocess.run([sys.executable, TYPECHECK_SCRIPT, "--files", os.path.abspath(path)], cwd=root,
+                                capture_output=True, text=True, timeout=BASELINE_TIMEOUT_SECONDS)
+        output = result.stdout + result.stderr
+        record["result"] = classify_typecheck(output)
+        record["errors"] = [line.strip() for line in output.splitlines() if "error CS" in line][:10]
+    except subprocess.TimeoutExpired:
+        record["result"] = "timeout"
+    except Exception as error:
+        record["result"] = "error"
+        record["errors"] = [str(error)]
+    record["seconds"] = round(time.time() - started, 1)
+    return record
+
+
+def typecheck_runs(transcript_path, session_id):
+    """[{when, result, id}] for every Bash call that really ran typecheck.py, in the session's
+    transcript and its subagents', with the result read from the matching tool_result."""
+    runs = {}
+    for path, _via in transcript_files(transcript_path, session_id):
+        try:
+            with open(path, errors="replace") as handle:
+                lines = handle.readlines()
+        except OSError:
+            continue
+        for line in lines:
+            if "typecheck.py" not in line or '"tool_use"' not in line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            for block in (entry.get("message") or {}).get("content") or []:
+                if (isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "Bash"
+                        and "typecheck.py" in runnable_tool_calls((block.get("input") or {}).get("command", ""))):
+                    runs[block.get("id")] = {"when": entry.get("timestamp", ""), "result": "unknown", "id": block.get("id")}
+        pending = [run_id for run_id in runs if run_id and runs[run_id]["result"] == "unknown"]
+        for line in lines if pending else []:
+            if '"tool_result"' not in line or not any(run_id in line for run_id in pending):
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            for block in (entry.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("tool_use_id") in runs:
+                    content = block.get("content")
+                    if isinstance(content, list):
+                        content = "\n".join(c.get("text", "") for c in content if isinstance(c, dict))
+                    runs[block["tool_use_id"]]["result"] = classify_typecheck(content or "")
+    return sorted(runs.values(), key=lambda run: run["when"])
+
+
+def parse_moment(stamp):
+    try:
+        return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone()
+    except (AttributeError, ValueError):
+        return None
+
+
+def cmd_hook_edit(args):
+    """PreToolUse hook on Edit|Write: on the session's first .cs edit, typecheck the file's assemblies
+    on the untouched tree (the baseline) and tell the agent the result; every .cs edit updates
+    last_cs_edit for the end check. Never blocks the edit."""
+    hook = {}
+    try:
+        hook = read_hook_input()
+        target = cs_edit_target(hook)
+        if not target:
+            return 0
+        path, root = target
+        hook_project_dir(hook)
+        folder = ensure_folder(reports_root(args), hook.get("session_id"), hook.get("transcript_path"),
+                               current_project_dir())
+        if not folder:
+            return 0
+        data = load_typecheck(folder)
+        data["last_cs_edit"] = {"when": now_iso(), "file": path, "root": root}
+        note = None
+        if "baseline" not in data:
+            data["baseline"] = run_baseline(path, root)
+            baseline = data["baseline"]
+            note = ("Typecheck baseline (this session's first .cs edit, run on the tree before it): %s in %ss — "
+                    "`%s --files %s` from %s." % (baseline["result"], baseline["seconds"], typecheck_command(root),
+                                                  os.path.relpath(path, root), root))
+            if baseline["result"] != "clean":
+                note += (" These results predate your edits; do not fix them unless asked, and do not count "
+                         "them against your change." + "".join("\n  " + e for e in baseline.get("errors", [])))
+            hook_log(args, "edit", hook, "baseline %s" % baseline["result"])
+        save_typecheck(folder, data)
+        if note:
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}}))
+    except Exception as error:   # a hook must never block an edit
+        hook_log(args, "edit", hook, "ERROR %s" % error)
+    return 0
+
+
+def cmd_hook_lint(args):
+    """PostToolUse hook on Edit|Write: cslint the edited .cs file's changed lines and hand the agent
+    the mechanical-tag violations at once. Silent when clean."""
+    hook = {}
+    try:
+        hook = read_hook_input()
+        target = cs_edit_target(hook)
+        if not target or not os.path.isfile(target[0]):
+            return 0
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(SCRIPT_PATH)), "unity-tools"))
+        import cslint
+        violations = cslint.lint_file(target[0])
+        folder = find_folder(reports_root(args), hook.get("session_id"))
+        if folder:
+            data = load_typecheck(folder)
+            lint = data.setdefault("lint", {"runs": 0, "violations": 0})
+            lint["runs"] += 1
+            lint["violations"] += len(violations)
+            save_typecheck(folder, data)
+        if violations:
+            rel = os.path.relpath(target[0], target[1])
+            rows = ["%s:%d: [%s] %s" % (rel, line, tag, message) for line, tag, message in violations[:LINT_MAX_ROWS]]
+            if len(violations) > LINT_MAX_ROWS:
+                rows.append("… %d more: python3 %s %s" % (len(violations) - LINT_MAX_ROWS,
+                                                          os.path.join(os.path.dirname(TYPECHECK_SCRIPT), "cslint.py"),
+                                                          target[0]))
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+                "cslint (mechanical coding-standards tags, changed lines only) found %d violation(s). Fix them "
+                "now, or say why one is a false positive:\n%s" % (len(violations), "\n".join(rows))}}))
+    except Exception as error:   # a hook must never break an edit
+        hook_log(args, "lint", hook, "ERROR %s" % error)
+    return 0
+
+
+def cmd_hook_stop_check(args):
+    """Stop hook (sync): when a .cs file changed after the last typecheck run of the session, block
+    the stop once with the command to run. stop_hook_active (already blocked once) always passes."""
+    hook = {}
+    try:
+        hook = read_hook_input()
+        if hook.get("stop_hook_active"):
+            return 0
+        hook_project_dir(hook)
+        folder = find_folder(reports_root(args), hook.get("session_id"))
+        data = load_typecheck(folder) if folder else {}
+        edit = data.get("last_cs_edit")
+        if not edit:
+            return 0
+        runs = typecheck_runs(locate_transcript(hook.get("session_id"), hook.get("transcript_path")),
+                              hook.get("session_id"))
+        runs = [run for run in runs if run["result"] != "listed"]
+        last = parse_moment(runs[-1]["when"]) if runs else None
+        if last and last >= parse_moment(edit["when"]):
+            return 0
+        data["end_check_blocks"] = data.get("end_check_blocks", 0) + 1
+        save_typecheck(folder, data)
+        hook_log(args, "stop-check", hook, "block: .cs edited %s, last typecheck %s"
+                 % (edit["when"], runs[-1]["when"] if runs else "none"))
+        print(json.dumps({"decision": "block", "reason":
+            "C# changed after the last typecheck (last .cs edit %s, %s; last typecheck: %s). Run `%s` from %s "
+            "(add --define USING_TOOLS for AndreaTools code) and report its result before you finish."
+            % (local_clock(edit["when"]) or edit["when"][11:19], os.path.relpath(edit["file"], edit["root"]),
+               local_clock(runs[-1]["when"]) if runs else "none this session", typecheck_command(edit["root"]),
+               edit["root"])}))
+    except Exception as error:   # a hook must never trap the session
+        hook_log(args, "stop-check", hook, "ERROR %s" % error)
+    return 0
+
+
+def typecheck_lines(state):
+    """metrics.md section: baseline, every typecheck run, the last .cs edit, end-check blocks, lint."""
+    data = state.get("typecheck") or {}
+    lines = ["", "## Typecheck", ""]
+    baseline = data.get("baseline")
+    lines.append("- Baseline: %s" % ("`%s` %s (%ss, %s)" % (local_clock(baseline["when"]), baseline["result"],
+                                                             baseline.get("seconds"), os.path.basename(baseline["file"]))
+                                     if baseline else "none (no .cs edit)"))
+    runs = data.get("runs") or []
+    lines.append("- Runs: %s" % (", ".join("`%s` %s" % (local_clock(r["when"]), r["result"]) for r in runs) or "none"))
+    edit = data.get("last_cs_edit")
+    lines.append("- Last .cs edit: %s" % ("`%s` %s" % (local_clock(edit["when"]), os.path.basename(edit["file"]))
+                                          if edit else "none"))
+    lines.append("- End-check blocks: %d" % data.get("end_check_blocks", 0))
+    lint = data.get("lint")
+    if lint:
+        lines.append("- cslint: %d run(s), %d violation(s) reported" % (lint["runs"], lint["violations"]))
+    return lines
 
 
 def set_work_type(state, work_type, source):
@@ -1091,7 +1514,7 @@ def cmd_set(args):
 def cmd_note(args):
     folder, state = resolve(args)
     key = "inaccuracies" if args.kind == "inaccuracy" else "iterations"
-    # source: engineer (/inaccuracy, /iteration), agent (self-corrected live), or retro
+    # source: engineer (/iteration), agent (self-corrected live), or retro
     # (found by /end-session and not logged live). Lets reports tell live logging apart.
     state[key].append({"at": now_iso(), "text": args.text, "source": args.source})
     save_state(folder, state)
@@ -1213,6 +1636,9 @@ def main():
     sub.add_parser("hook-stop").set_defaults(func=cmd_hook_stop)
     sub.add_parser("hook-prompt").set_defaults(func=cmd_hook_prompt)
     sub.add_parser("hook-bash").set_defaults(func=cmd_hook_bash)
+    sub.add_parser("hook-edit").set_defaults(func=cmd_hook_edit)
+    sub.add_parser("hook-lint").set_defaults(func=cmd_hook_lint)
+    sub.add_parser("hook-stop-check").set_defaults(func=cmd_hook_stop_check)
     features = sub.add_parser("features", help="list CreateFeature features that are not complete or closed (/active-features)")
     features.add_argument("--features-root", help="override $SESSION_FEATURES_ROOT, ai-agent-core.json paths.features, or legacy <project>/%s" % DEFAULT_FEATURES_DIR)
     features.add_argument("--json", action="store_true")

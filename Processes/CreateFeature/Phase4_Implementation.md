@@ -29,17 +29,18 @@ per_file_checks:
   accessibility:     "No public fields. Setters at maximum restriction. All modifiers explicit."
   resource_symmetry: "Every subscription has unsubscribe. Every acquire has release. Guards use IDisposable/using."
   method_design:     "No method named with And. Composers sequence only. Leaves touch data only."
-  audit:             "REQUIRED: /audit <file> ran and every violation is fixed or reported. It covers the checks above; self-review is not a substitute."
+  lint:              "REQUIRED: the cslint hook's violations for this file (reported after each edit) are fixed or explained. It covers the mechanical tags only."
+  audit:             "REQUIRED before the batch is published: one /audit over the batch's files (Skill tool — a fresh subagent; wait for its report), every violation fixed or reported. It judges the checks above; self-review is not a substitute."
   tests:             "Writing a test file: read ../../Rules/TestingRules.md (and the host project's testing-setup rule, if it has one) before writing it. CodingStandards and ArchitecturalPrinciples do not cover tests."
   steady_state:      "If this file implements event listeners, poll handlers, or subscription-based updates: verify not just immediately after an action (snapshot) but also at idle with no data change — ensure no redundant rebuilds, repaints, or state mutations occur. E.g., a poll handler should render identically on tick N and tick N+1 when data has not changed."
 ```
 
-Run `/audit <file>` before presenting each file — a file is not presented until its audit has
-run. Present each file to the engineer after writing it. Do not move to the next file until the
-current one is acknowledged.
+A file is not presented until its cslint violations are fixed or explained. Present each file to
+the engineer after writing it. Do not move to the next file until the current one is
+acknowledged. `/audit` runs once per batch, over all of its files, before `/publish-batch publish`.
 
 After each acknowledgment, update the progress file's Checkpoint: add the file to `done`, marked
-`(audited)`, and set `next` to the following file from the TDD's File Plan. Implementation is where a session most often
+`(linted)` — `(audited)` once the batch's /audit has run — and set `next` to the following file from the TDD's File Plan. Implementation is where a session most often
 ends mid-phase.
 
 When a PR opens for one of the TDD's V-phases, run `/feature-pr <PR>`: it lists the PR under
@@ -71,7 +72,7 @@ Python tools, Markdown and agent metadata are exempt.
 batched_publishing:
   start_task:  "/publish-batch plan — a worktree and branch per task (feature/<FeatureName>/<task_id>, from the engineer's user branch) and a batch plan the engineer approves."
   per_batch:
-    - "Write the batch's files with the Per-File Checklist above; /audit each one. typecheck.py passes."
+    - "Write the batch's files with the Per-File Checklist above (cslint clean per file); then one /audit over the batch's files. typecheck.py passes."
     - "/publish-batch publish — commit, push, open a PR against the user branch, and output the change table (Change | File · Type | What changed | Why) for every file added, modified or removed."
     - "The engineer reviews on GitHub and runs the notes by the agent through /feature-pr <PR>; fixes are pushed to the same PR."
     - "/publish-batch status — once the PR is merged, the batch is complete; the branch syncs with the user branch and the next batch starts."

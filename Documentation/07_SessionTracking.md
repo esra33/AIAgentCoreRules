@@ -13,14 +13,17 @@ engineer's part is logging corrections and running `/end-session`.
 | First thing worth saving | The session folder is created on the first `set`, `note` or `compile`, or after the first reply. Sessions opened and closed without work leave no folder | Automatic |
 | Naming (optional) | `/start-session <name>` names the session; the name goes into the folder and the metrics heading | Engineer |
 | Mode classified | The agent records the lane (feature, bug_fix, small_task, large_task, investigation, other), the work type (bug_fix, small_feature, large_feature, feature, question, other) and a short title | Agent |
-| Agent makes a mistake you correct | `/inaccuracy <what was wrong>` | Engineer |
-| Agent retracts a claim, or you reject its approach | It logs the inaccuracy itself, marked `agent` | Agent |
+| Agent retracts a claim, or you correct it or reject its approach | It logs the inaccuracy itself, marked `agent` | Agent |
 | A correction was never logged | `/end-session` records it from the retro's Corrections, marked `retro` | Agent |
 | You deliberately change direction | `/iteration <what changed>` | Engineer |
 | Wrap up | `/end-session` compiles metrics, writes the retrospective and opens both files | Engineer |
 | After each agent reply | The Stop hook recompiles metrics (at most every 2 minutes) without marking the session ended, so a session that is never exited still has current metrics | Automatic |
 | You send a prompt after a long break | When the last reply is over an hour old and its context was over ~100k tokens, the UserPromptSubmit hook tells the agent the prompt cache has expired and what the next call costs, so new work can be offered a fresh session (`/new-session`) | Automatic |
 | The agent reads a rule file through the shell | A PreToolUse hook on Bash notices `cat`/`sed`/`head`/`tail` of a `.md` under `Rules/`, `Processes/`, `Systems/`, `SystemPatterns/` or `Skills/` and reminds the agent to use Read, so the router trace stays exact. Only a command in command position counts (start of the line, or after `;`, `&&`, `\|`): a mention inside quoted text or a heredoc stays silent. It never blocks the command | Automatic |
+| The agent greps C# for a type or member name | The same hook suggests the index command that answers it, by literal path: `class\|interface\|enum\|struct\|record Name` → `codeindex.py where/show Name`, `[Name` → `codeindex.py attributed Name`, a bare PascalCase name (or `Name(`) → `usages.py Name`. Only greps over `.cs` files or `Assets/` count; free text, `grep -v` filters and greps of piped output stay silent. It never blocks the command | Automatic |
+| The agent first edits a `.cs` file in a Unity project | A PreToolUse hook on Edit/Write runs `typecheck.py --files <file>` on the still-untouched tree (~3-4 s) and tells the agent the result, so errors that predate the change are not blamed on it. Every later `.cs` edit only records the time of the last edit. It never blocks the edit | Automatic |
+| The agent saves a `.cs` file | A PostToolUse hook on Edit/Write runs `cslint.py` on the file's changed lines and hands the agent any violations of the mechanical tags ([EXPLICIT] [ALLMAN] [ACCESS] [FIELD] [DI] [LOG] [ASYNC]) to fix at once. Silent when clean | Automatic |
+| The agent tries to finish after editing C# | A second, synchronous Stop hook checks the transcript (subagents' included) for a `typecheck.py` run after the last `.cs` edit (`--list` does not count). With none, it blocks the stop once and tells the agent the exact command to run. It never blocks twice in a row, and is instant in a session with no `.cs` edits | Automatic |
 | The context gets large | When the last call's context reaches 90% of the median **peak per-call context** of finished sessions (122k on 2026-11-02, from 100 sessions; needs at least 5 with a compiled `peak_context`), the UserPromptSubmit hook shows you a warning and tells the agent to offer a reset (`/compact <what to keep>` or a fresh session with a handoff) at the next task boundary. Once per crossing: `context-warning.json` in the session folder re-arms when the context drops back below. Every call re-sends the whole context, so "Conversation & base context" is most of a session's cost | Automatic; you decide |
 | The lane changes in a large session | Recording a lane change on a session past ~30M tokens prints a fresh-session offer with the matching command (`/new-session "/bug-fix <symptom>"`, …) | Agent offers, you decide |
 | Session closes without `/end-session` | The SessionEnd hook still compiles metrics (no retrospective) and records the exit time and reason; a resumed session's end time is updated on each exit. It fires only when the process exits, not when the app marks an idle session completed | Automatic |
@@ -43,7 +46,9 @@ Who sees what a hook prints — check here before designing a new warning or nud
 | SessionStart | stdout and `additionalContext`; re-fires after `/clear` and `/compact`, so it can re-inject context | `systemMessage` |
 | UserPromptSubmit | stdout and `additionalContext` — the only way to reach the agent mid-session | `systemMessage` |
 | PreToolUse | `additionalContext` | `systemMessage` |
-| Stop | Nothing (runs async) | Nothing |
+| PostToolUse | `additionalContext` | `systemMessage` |
+| Stop (async metrics recompile) | Nothing | Nothing |
+| Stop (sync typecheck check) | A `{"decision": "block"}` reason — the agent keeps working on it | `systemMessage` |
 
 A JSON `systemMessage` from any hook reaches the engineer only. No hook or agent action can run
 `/clear` or `/compact` — a hook can only tell the agent to offer one. The auto-compact threshold
@@ -77,6 +82,7 @@ tokens or typed prompt), the SessionEnd hook removes it, and `session_lifecycle.
 ```
 GitIgnoreReports/Sessions/<YYYY-MM-DD_HHMM>_<lane>_<name>_<id8>/
   session.json   state (source of truth)
+  typecheck.json typecheck baseline, last .cs edit, end-check blocks, cslint counts (written by the hooks)
   metrics.md     rendered report
   retro.md       written by /end-session
   retro.html     the retro as a page: progress bar and a status badge per proposal
@@ -94,9 +100,15 @@ GitIgnoreReports/Sessions/<YYYY-MM-DD_HHMM>_<lane>_<name>_<id8>/
 - **Router trace** — the files loaded through `CLAUDE.md`, then every rule and process file
   loaded on demand, in order, with the time and how it was loaded
 - A count of each of the host project's Runnable tools the agent ran (for example `typecheck.py`,
-  `codeindex.py`, `usages.py`)
+  `codeindex.py`, `usages.py`). Only real invocations count: a `python3 codeindex.py …` inside a
+  heredoc body or quoted text (an edit script, a doc string) is not a run
+- **Typecheck** — the baseline (result, seconds, file), every `typecheck.py` run with its result,
+  the last `.cs` edit, how many times the stop was blocked, and cslint runs and violations.
+  The hooks keep this in `typecheck.json` rather than session.json, because the async metrics
+  recompile rewrites session.json and would drop a concurrent update
 - **Token breakdown (estimated)** — tokens per category with the standardized-operations share,
-  and tokens and round-trips saved per mechanism (see *Token charts* below)
+  and tokens and round-trips saved per mechanism (see *Token charts* below), followed by
+  *Missed index opportunities*: lookups done by hand that code-graph, codeindex or usages answers
 
 The router trace is read from the session transcript, not from the agent's memory. Rows loaded
 with the Read tool are exact; rows inferred from shell commands are heuristic (a `grep` over a
@@ -120,8 +132,8 @@ resume.
 | Router check | The files the lane's process expects to be loaded vs. what the trace shows — misses and unnecessary loads |
 | Corrections | Each inaccuracy with a root cause: missing rule, missing index entry, rule ignored, signature guessed, or scope misread |
 | Discovery gaps | Anything looked up mid-task that the host project's SystemIndex or Systems docs should have supplied |
-| Proposed changes | Concrete, minimal edits to rules, processes or index — **not applied**. Each row is self-contained (no "see above"), because the session that applies it reads only this table. The File cell lists every copy of the changed text, including the matching Documentation/ page |
-| Cost | Tokens, turns, subagents, and the heaviest turns ranked by **fresh** tokens (plus the heaviest by total, if different), each judged necessary, partly necessary or avoidable |
+| Proposed changes | Concrete, minimal edits to rules, processes or index — **not applied**. Each row is self-contained (no "see above"), because the session that applies it reads only this table. The File cell lists every copy of the changed text, including the matching Documentation/ page, and names one concrete path — never "engineer's choice"; when the right home is unclear, the agent asks before writing the row |
+| Cost | Tokens, turns, subagents, and the heaviest turns ranked by **fresh** tokens (plus the heaviest by total, if different), each judged necessary, partly necessary or avoidable; then what code-graph saved and the missed index opportunities (a recurring kind becomes a proposed change) |
 
 In a background session, `/end-session` cannot write `retro.md` into the session folder: once its
 worktree is removed, Claude Code's isolation guard refuses Write in the shared checkout. The agent
@@ -145,6 +157,11 @@ session is marked in its original retro with `--folder <id8>`, so the page stays
 are worked through. The page cannot write to disk itself; each open card has a button that copies
 the command that marks it applied — run it, or ask Claude to.
 
+### Model
+
+`compile` records the session's main model (the one behind most assistant messages, e.g.
+`claude-sonnet-5`) as `model` in session.json and as the **Model** row in metrics.md.
+
 ### Token charts
 
 `compile` also estimates where the tokens went (`token_breakdown.py`, read from the transcript)
@@ -157,7 +174,7 @@ retro.html gets a **Token charts** section just before Cost, with three charts:
    the lifecycle script, skills, rule/process loads, subagents), as a total and a share. The
    remainder is split into ad-hoc tool calls and conversation/base context.
 3. **What saved tokens and round-trips.** Parallel tool calls, subagent delegation, partial file
-   reads, and each Runnable tool, with tokens and round-trips saved.
+   reads, each Runnable tool and the code-graph API, with tokens and round-trips saved.
 
 All of these are estimates. Each model call is counted once, in the breakdown and in the token
 report's Total Tokens alike, so metrics.md quotes a single total. A tool result costs its size
@@ -167,7 +184,13 @@ one ~3k-token exploratory read plus 2 round-trips; the assumptions are listed on
 `AVOIDED_BY_TOOL`. Doc-review preview calls are compared with doing the same through Miro and
 Confluence (`MIRO_CONFLUENCE_BY_COMMAND`: serve ≈ 18.4k tokens + 3 round-trips, comments ≈ 2.4k + 2,
 reply ≈ 1.3k + 1, from averages of real MCP calls); the breakdown's `doc_review` block also measures
-the Miro/Confluence MCP calls a session really made. To add a saving mechanism, add its name to
+the Miro/Confluence MCP calls a session really made. Code-graph calls (`curl …/api/type|graph|search`)
+are compared with the grep work each replaces (`GREP_BY_CODE_GRAPH_ROUTE`: type ≈ 5k tokens + 3
+round-trips, graph ≈ 6k + 4, search ≈ 2k + 1). The breakdown's `missed` block counts the opposite:
+greps over C# for a type or member name (the hook-bash matcher), chains of 2+ codeindex
+where/members/subclasses/implementers calls on one type, and whole-file `.cs` reads never followed by an
+edit of that file. Each miss costs its result minus an index call (~800 tokens) times later calls; files
+smaller than that are not misses. Main thread only — subagent tool calls are not inspected. To add a saving mechanism, add its name to
 `token_breakdown.SAVINGS` and fill `savings[name]` in `analyse()`; metrics.md and retro.html render
 every entry generically.
 
@@ -246,7 +269,7 @@ wraps it in a repeatable review of one time window, by default since the previou
    files them with `session_lifecycle.py file --to MetaReviews <files>`. Then work through the
    tickets one at a time.
 
-**Source files:** [[Processes/MetaReview|MetaReview process]] · [[Tools/session-analysis/README|session-analysis README]] · [[Tools/session-lifecycle/README|session-lifecycle README]] · [[Skills/start-session/SKILL|/start-session]] · [[Skills/end-session/SKILL|/end-session]] · [[Skills/inaccuracy/SKILL|/inaccuracy]] · [[Skills/iteration/SKILL|/iteration]]
+**Source files:** [[Processes/MetaReview|MetaReview process]] · [[Tools/session-analysis/README|session-analysis README]] · [[Tools/session-lifecycle/README|session-lifecycle README]] · [[Skills/start-session/SKILL|/start-session]] · [[Skills/end-session/SKILL|/end-session]] · [[Skills/iteration/SKILL|/iteration]]
 
 ---
 

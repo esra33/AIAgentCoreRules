@@ -231,7 +231,7 @@ ROUTING = re.compile(r"(?:^|/)(Processes/|Rules/(MetaRouter|StopAndVerify|Invest
 RULES = re.compile(r"(?:^|/)Rules/[A-Za-z]+\.md$")
 METADATA_PATH = re.compile(r"/(AIAgentCoreRules|TripleMatchAiMetaData)/")
 MAINTENANCE_SHARE = 0.5   # a session whose edits are mostly metadata files was maintaining the docs, not consuming them
-SKILLS = {os.path.basename(p) for p in glob.glob(os.path.join(os.path.dirname(LIFECYCLE_DIR), "..", "Skills", "*"))} | {"uses"}
+SKILLS = {os.path.basename(p) for p in glob.glob(os.path.join(os.path.dirname(LIFECYCLE_DIR), "..", "Skills", "*"))}
 
 
 def lifecycle():
@@ -405,9 +405,9 @@ def savings(sessions, turns, assumptions):
                 credit("/" + skill, "skill / command", s, 0, basis)
             elements["/" + skill]["tokens"] += tokens
         if u["agents"]:
-            credit("subagents (/discover, Explore)", "delegation", s, 0,
+            credit("subagents (Explore, fork)", "delegation", s, 0,
                    "keeps survey reads out of the main context — not token-estimated; subagent cost shown as spend")
-            elements["subagents (/discover, Explore)"]["uses"] += u["agents"] - 1
+            elements["subagents (Explore, fork)"]["uses"] += u["agents"] - 1
         # No transcript (e.g. it could not be found): fall back to the retro's Router check "yes" rows.
         loads = u["loads"] or (s["retro"] or {}).get("router_hits", [])
         for path in loads:

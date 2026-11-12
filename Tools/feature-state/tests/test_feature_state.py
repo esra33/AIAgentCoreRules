@@ -65,6 +65,25 @@ class FeatureStateTests(unittest.TestCase):
             update_state(self.directory, "artifact", {"role": "gdd", "path": "../secret.md"}, 1)
         self.assertEqual(load_state(self.directory)["revision"], 1)
 
+    def test_milestone_report_merges_by_label_and_registers_artifact(self):
+        create_state(self.directory)
+        state = update_state(self.directory, "milestone-report", {"label": "V0 Summary", "path": "Feature_V0Summary.md"}, 1)
+        self.assertEqual(state["milestone_reports"], [{"label": "V0 Summary", "path": "Feature_V0Summary.md"}])
+        self.assertIn("Feature_V0Summary.md", state["artifacts"])
+        state = update_state(self.directory, "milestone-report", {"label": "V0 Summary", "path": "Feature_V0Summary2.md"}, state["revision"])
+        self.assertEqual(state["milestone_reports"], [{"label": "V0 Summary", "path": "Feature_V0Summary2.md"}])
+        with self.assertRaises(StateError):
+            update_state(self.directory, "milestone-report", {"label": "", "path": "x.md"}, state["revision"])
+        with self.assertRaises(StateError):
+            update_state(self.directory, "milestone-report", {"label": "Escape", "path": "../secret.md"}, state["revision"])
+
+    def test_missing_milestone_reports_key_loads_as_empty_list(self):
+        create_state(self.directory)
+        raw = json.loads((self.directory / "state.json").read_text())
+        del raw["milestone_reports"]
+        (self.directory / "state.json").write_text(json.dumps(raw))
+        self.assertEqual(load_state(self.directory)["milestone_reports"], [])
+
     def legacy(self, extra=""):
         source = self.directory / "Feature_Progress.md"
         text = '''# Feature

@@ -15,16 +15,18 @@ For Magic Match 3D the host layer is **TripleMatchAiMetaData** — see its own d
 |---|---|---|
 | **Project rules** (always loaded) | Project-wide conventions the core rules cannot know: logging wrapper setup, release-build guards, config loading, forbidden file types | Every process, `/audit` |
 | **SystemIndex** (always loaded) | A router for project knowledge: maps task phrases to the right Systems or SystemPatterns doc | Discovery in every process |
-| **Systems/** | One overview per game system: responsibility, key interfaces, entry point, integration points, **common gotchas** | Bug Fix step 2, Small Task step 2, Create Feature Phase 2, `/discover` |
+| **Systems/** | One overview per game system: responsibility, key interfaces, entry point, integration points, **common gotchas** | Bug Fix step 2, Small Task step 2, Create Feature Phase 2, Explore surveys |
 | **SystemPatterns/** | Step-by-step guides for building a feature in a system | When writing the TDD Architecture (Create Feature Phase 1) and in the Phase 3 design delta, Small Task step 2 |
 | **Testing setup** | Project test infrastructure: container setup, test doubles, assertion helpers | Bug Fix step 6, Create Feature Phase 5 |
-| **Runnable tools** | Scripts that verify work or answer structural questions without reading files | See below |
-| **Project skills** | Extra slash commands wrapping the Runnable tools | Optional |
+| **Runnable tools routing** | A "Runnable Tools" section in the SystemIndex pointing at the core [[16_UnityTools\|Unity tools]] (or the host's own) | See below |
+| **Project skills** | Extra slash commands for the project's own tooling | Optional |
 
 ## Runnable tools the core processes expect
 
-The core process files name these tools directly. A host layer that uses different tools
-should keep the same roles.
+The core process files name these tools directly. For a Unity project they ship with the core
+in `Tools/unity-tools/`; the host layer's SystemIndex only routes to
+them, so the agent knows to run them. A host that is not a Unity project, or uses different
+tools, should keep the same roles.
 
 | Role | Name in the core processes | Question it answers |
 |---|---|---|
@@ -48,7 +50,7 @@ host project:
 
 ## Growing the host layer
 
-The layer improves through use. After Phase 2 Discovery, or after `/discover` maps a system
+The layer improves through use. After Phase 2 Discovery, or after an Explore survey maps a system
 with no entry, the agent offers to save the map as a new Systems doc. Retrospectives trace
 corrections with the root cause `missing-index-entry` to a concrete Systems or SystemPatterns
 change.

@@ -8,6 +8,10 @@ frame, and every update, re-sends the whole thing through the context (a board r
 a large canvas-composer-skill payload on top), so the cost is set by how many round trips happen,
 not by how big the change is. Work in **passes**: read once, change locally, write once.
 
+**Local first.** The local docs and the doc-review preview are the default read source; external
+pages and boards are write (publish) targets. Read an external page only inside a review pass
+below, or when the engineer explicitly asks — never to resume, re-orient or check status.
+
 The host project supplies its conventions (page template, style reference, markup, comment
 convention) in a doc-conventions rule file listed in its SystemIndex. Load it before the first
 publish of a session.

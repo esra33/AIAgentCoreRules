@@ -1,7 +1,8 @@
 # Coding Rules
 
 The standards every piece of agent-generated code must meet. They are enforced by the process
-checklists and by `/audit`.
+checklists, by `cslint.py` (the mechanical tags, run by a hook on every `.cs` edit) and by
+`/audit` (the judgement review).
 
 ## Non-negotiables
 
@@ -18,7 +19,7 @@ checklists and by `/audit`.
 | LOG | All logging through the project Logger wrapper — never `Debug.Log`, `Debug.LogWarning` or `Debug.LogError`. |
 | DELEGATE | Breadth goes to subagents: "where / which files / who implements" questions are delegated, and so is multi-round exploratory/trial-and-error work (browser-automation probing, iterative debug scripts) — only the final working script and its conclusion need to come back. |
 | SHAPE | A tool, script or report request goes through the scope gate before any exploration. |
-| TRIM | Tool output stays out of context unless the task needs it or verbosity is requested — pipe through `tail`/`grep`/`head`, use `Read` with `limit`/`offset`, summarize instead of pasting raw output. |
+| TRIM | Tool output stays out of context unless the task needs it or verbosity is requested — pipe through `tail`/`grep`/`head`, use `Read` with `limit`/`offset`, summarize instead of pasting raw output. A grep for a C# type or member name has a `usages.py` / `codeindex.py` equivalent; the hook-bash suggestion is a hard redirect — re-run the suggested command instead of reading the grep output. |
 
 ## Rule tags
 

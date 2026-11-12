@@ -10,7 +10,7 @@ sys.path.insert(0, str(TOOL_DIR))
 
 from graph_db import GraphDb, GraphDbError  # noqa: E402
 
-# Subset of codeindex.py's SCHEMA (schema_version 2) -- the tables and columns this tool reads.
+# Subset of codeindex.py's SCHEMA (schema_version 3) -- the tables and columns this tool reads.
 SCHEMA = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE assembly(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, csproj TEXT NOT NULL);
@@ -58,7 +58,7 @@ MEMBERS = [
 ]
 
 
-def build_fixture_db(directory, schema_version='2'):
+def build_fixture_db(directory, schema_version='3'):
     """Write a small codeindex-shaped DB into directory and return its path."""
     path = os.path.join(directory, 'codeindex.sqlite')
     conn = sqlite3.connect(path)
@@ -102,7 +102,7 @@ class GraphDbTest(unittest.TestCase):
     def test_wrong_schema_version_raises(self):
         other = tempfile.mkdtemp()
         with self.assertRaises(GraphDbError):
-            GraphDb(build_fixture_db(other, schema_version='1')).status()
+            GraphDb(build_fixture_db(other, schema_version='2')).status()
 
     def test_db_is_opened_read_only(self):
         conn = self.db._connect()

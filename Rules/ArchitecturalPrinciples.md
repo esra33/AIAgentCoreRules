@@ -153,7 +153,7 @@ assembly_rules:
 hard_rules:
   - Do not add a dependency unless its interface is in scope — request the source if missing.
   - "[SRP] Do not merge two responsibilities into one class to save files."
-  - New behavior requires a new class or override — not a flag on an existing ![[GameProgressSaveSlim_GDD]]method.
+  - New behavior requires a new class or override — not a flag on an existing method.
   - "[DIP] Add an interface only for polymorphism or to reduce exposure — never one interface per class by default."
   - "[DIP] When either trigger applies, the public surface must expose the interface, never the concrete type."
   - Never expose a mutable collection field — the property returns the readonly contract.

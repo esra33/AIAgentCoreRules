@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only graph queries over a codeindex SQLite database (schema_version 2).
+"""Read-only graph queries over a codeindex SQLite database (schema_version 3).
 
 The DB is written by the host's codeindex.py; this module never writes it. Each call opens a
 fresh read-only connection, so a rebuild committed while the server runs is picked up by the
@@ -14,7 +14,7 @@ import os
 import sqlite3
 from contextlib import closing
 
-SCHEMA_VERSION = '2'
+SCHEMA_VERSION = '3'
 DEFAULT_GRAPH_DEPTH = 2
 MAX_GRAPH_DEPTH = 6
 DEFAULT_NODE_LIMIT = 150

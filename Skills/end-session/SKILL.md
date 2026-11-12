@@ -82,7 +82,7 @@ If rendering or opening fails, report that failure and link the saved artifacts.
 
 ```yaml
 depth:
-  feature:        "Only when the progress file's current_phase is 8_retrospective: load ../Processes/CreateFeature/Phase8_Retrospective.md and follow it; its report is retro.md and its benchmarks come from metrics.md — do not ask for /cost. Any earlier phase: a short retro titled '<FeatureName> — Phase <N> <Name>', with the phase file as the Router check's expected load. Phase 8 reads these."
+  feature:        "Only when the progress file's current_phase is 8_retrospective: load Processes/CreateFeature/Phase8_Retrospective.md and follow it; its report is retro.md and its benchmarks come from metrics.md — do not ask for /cost. Any earlier phase: a short retro titled '<FeatureName> — Phase <N> <Name>', with the phase file as the Router check's expected load. Phase 8 reads these."
   small_task:     short
   large_task:     short
   bug_fix:        short
@@ -123,7 +123,9 @@ Short retrospective — write `retro.md` in the session folder with exactly thes
 <concrete, minimal edits. Not applied. Each Change cell is self-contained — state the facts
  inline, never "the facts above": the applying session reads only this table.
  The File cell lists every copy of the changed text, including the matching Documentation/
- page: grep the old text across the repo before writing the row.>
+ page: grep the old text across the repo before writing the row.
+ The File cell names one concrete path — never 'location: engineer's choice'. If the right home
+ is unclear, ask the engineer before writing the row.>
 
 ## Cost
 <total tokens, turns, subagents from metrics.md; the 3 heaviest turns and whether each was necessary.
@@ -135,7 +137,11 @@ Short retrospective — write `retro.md` in the session folder with exactly thes
       **Partly necessary** — <what was avoidable>. | **Avoidable** — <why>.
  If tokens/ is missing or metrics.md marks tokens unavailable, label the list "estimated" and say why.
  Then one line from metrics.md's "Token breakdown (estimated)": the standardized-operations share and
- the top saving mechanism. retro.html charts these next to the session-vs-average comparison.>
+ the top saving mechanism. retro.html charts these next to the session-vs-average comparison.
+ Then one line on the code index: what the "code-graph API" saving row records (uses, tokens,
+ round-trips; "not used" when 0), and from "Missed index opportunities" the count and tokens lost per
+ kind with up to 3 of its examples. A kind that recurs (2+ examples, or one in an earlier retro) is a
+ Proposed changes row: the rule or index entry that should have routed the lookup to the index.>
 ```
 
 **Background session.** Once Step 0 has removed the worktree, the isolation guard refuses Write
@@ -173,7 +179,7 @@ Where to apply them, offered in this order:
 ```yaml
 fresh_session:   # default — this session's context is at its largest, and every edit re-reads it
   how: "Mark the approved proposals pending, then print (or run via /new-session):"
-  command: '/new-session "Apply proposals <N,M> from <retro.md path>: read only its Proposed changes table, apply each, then mark it with session_lifecycle.py retro --folder <id8> --mark <N> --status applied. Run session_lifecycle.py from the host project root (it resolves GitIgnoreReports/Sessions from the cwd). Layer-repo edits go in a worktree: git -C <abs layer> worktree add -b agent/<name> <abs layer>/.claude/worktrees/<name> HEAD"'
+  command: '/new-session "Apply proposals <N,M> from <retro.md path>: read only its Proposed changes table, apply each, then mark it with session_lifecycle.py retro --folder <id8> --mark <N> --status applied. Run session_lifecycle.py from the host project root (it resolves GitIgnoreReports/Sessions from the cwd). Layer-repo edits go in a worktree: git -C <abs layer> worktree add -b agent/<name> <abs layer>/.claude/worktrees/<name> HEAD. Before creating each layer worktree, check that layer main checkout with git -C <abs layer> rev-parse -q --verify MERGE_HEAD and git -C <abs layer> status --porcelain --untracked-files=no; if either prints anything, tell the engineer up front, since /land-worktree will not merge over it."'
   note: "The new session reads the retro's table, not this transcript. Record it as lane other. Copy the command's worktree clause verbatim; for layer repos never substitute EnterWorktree — it isolates only the host project, and its GitIgnoredExternals links still point at the layer's main checkout."
 in_place:        # only for 1–2 one-line edits
   how: "Apply here, one file at a time, as below."

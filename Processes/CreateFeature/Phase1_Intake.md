@@ -128,8 +128,9 @@ architecture_checks:
      mechanism (e.g. which type implements a listener interface) unless the engineer has already
      confirmed it — that's an implementation decision for a later phase."
   - "Before marking a save/storage-mechanism decision in Architecture (or Data Reconciliation
-     Strategy), re-check it against every entry in the progress file's `sources_of_truth`, not just
-     the GDD — a source proposal can already decide it in writing."
+     Strategy), re-check it against every entry in the progress file's `sources_of_truth`, using the
+     local copies (feature folder, preview); fetch an external entry only if the engineer asks or no
+     local copy exists. Not just the GDD — a source proposal can already decide it in writing."
 ```
 
 ---
@@ -341,7 +342,7 @@ read the findings back instead of reconstructing them from the TDD.
 Session metrics are already running (SessionStart hook — see MetaRouter Session Lifecycle), and the
 lane/title are already set by `/resume-work` or `/feature` before this phase file loads. Remind the
 engineer once:
-- `/inaccuracy <reason>` immediately after correcting an agent mistake.
+- Corrections: just say so; the agent logs its own mistakes (`note --kind inaccuracy --source agent`).
 - `/iteration <description>` when deliberately changing direction or refining scope.
 - `/end-session` at the end of every working session — each session of this feature gets its own metrics.
 

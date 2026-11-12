@@ -35,8 +35,30 @@ LIFECYCLE = "session_lifecycle.py"
 #   typecheck: grepping the tail of Editor.log, after waiting for the editor to recompile.
 AVOIDED_BY_TOOL = {"codeindex.py": (3000, 2), "usages.py": (6000, 3), "typecheck.py": (4000, 2)}
 DOC_REVIEW_SAVING = "Doc review vs Miro/Confluence"
+CODE_GRAPH_SAVING = "code-graph API"
 SAVINGS = ["Parallel tool calls", "Subagent delegation", "Partial file reads",
-           "codeindex.py", "usages.py", "typecheck.py", DOC_REVIEW_SAVING]
+           "codeindex.py", "usages.py", "typecheck.py", CODE_GRAPH_SAVING, DOC_REVIEW_SAVING]
+# code-graph server calls (curl …/api/<route>) and the grep work each replaces: (context tokens, round-trips).
+#   type:   a declaration grep, a grep for derived types and a whole-file read for the members.
+#   graph:  a grep chain up or down the hierarchy, one grep per level plus a read.
+#   search: one grep -rn for the name.
+# /api/sources and /api/health are doc-review / launcher routes, not lookups. Only a curl at a command
+# position (start, or after ; && || | $( ) counts, so a mention in a commit message or echo is silent.
+CODE_GRAPH_PATTERN = re.compile(r"(?:^|[;&|]|\$\()\s*curl\b[^\n|;&]*?/api/(type|graph|search)\b", re.MULTILINE)
+GREP_BY_CODE_GRAPH_ROUTE = {"type": (5000, 3), "graph": (6000, 4), "search": (2000, 1)}
+# Missed index opportunities: work done by hand that code-graph, codeindex or usages answers.
+#   grep:  a grep over C# for a type or member name (the hook-bash matcher, passed in by the caller).
+#   chain: 2+ codeindex shape queries on one type, which one /api/type or /api/graph call covers.
+#   read:  a whole-file .cs Read never followed by an edit of that file — read only for its shape.
+# Each miss is charged its result minus what the index call would have returned (guessed below).
+INDEX_CALL_TOKENS = 800
+MISSED_GREP = "Type/member grep over C#"
+MISSED_CHAIN = "codeindex chain"
+MISSED_READ = "Whole-file .cs read for shape"
+MISSED = [MISSED_GREP, MISSED_CHAIN, MISSED_READ]
+MISSED_EXAMPLES = 5
+CODEINDEX_SHAPE_PATTERN = r"python3?\s+\S*codeindex\.py\s+(?:where|members|subclasses|implementers)\s+([A-Za-z_]\w*)"
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 # Doc-review preview calls (doc_review.py <command>, mermaid_preview.py = serve), and what the same
 # operation would cost through the Miro / Confluence MCP tools: (context tokens, round-trips).
 # Averages of real MCP calls (input + result) in this project's transcripts, measured 2026-10-27:
@@ -173,9 +195,65 @@ def partial_read_unread(tool_input):
     return int(sum(len(line) for line in lines) / CHARS_PER_TOKEN * unread_lines / len(lines))
 
 
-def analyse(transcript_path, session_id, roots):
+def suggested_tool(suggestion):
+    """The index call to show for a hook-bash suggestion: a declaration lookup is one code-graph call."""
+    command = suggestion[0]
+    if command.startswith("codeindex.py where "):
+        return 'curl -s "$URL/api/type?name=%s&members=0"' % command.split()[-1]
+    return command
+
+
+def missed_opportunities(order, carried, grep_suggestions):
+    """{kind: {count, tokens, round_trips, examples}} for the MISSED kinds (see MISSED_GREP above)."""
+    missed = {kind: {"count": 0, "tokens": 0, "round_trips": 0, "examples": []} for kind in MISSED}
+
+    def add(kind, tokens, round_trips, example):
+        entry = missed[kind]
+        entry["count"] += 1
+        entry["tokens"] += tokens
+        entry["round_trips"] += round_trips
+        if len(entry["examples"]) < MISSED_EXAMPLES:
+            entry["examples"].append(example)
+
+    chains = {}                              # type name -> [op], in order
+    edited = {}                              # real path -> last call that edited it
+    for op in order:
+        if op["name"] in EDIT_TOOLS:
+            path = os.path.realpath(op["input"].get("file_path") or op["input"].get("notebook_path") or "")
+            edited[path] = max(edited.get(path, -1), op["call"])
+    for op in order:
+        if op["name"] == "Bash":
+            command = op["input"].get("command", "")
+            suggestions = grep_suggestions(command) if grep_suggestions else []
+            if suggestions:
+                add(MISSED_GREP, carried(max(op.get("result", 0) - INDEX_CALL_TOKENS, 0), op["at"]), 1,
+                    "`%s` → `%s`" % (command.strip().splitlines()[0][:100].replace("`", "'"),
+                                     suggested_tool(suggestions[0])))
+            for name in re.findall(CODEINDEX_SHAPE_PATTERN, command):
+                chains.setdefault(name.split(".")[0], []).append(op)
+        elif op["name"] == "Read":
+            path = os.path.realpath(op["input"].get("file_path", ""))
+            if path.endswith(".cs") and not op["input"].get("limit") and not op["input"].get("offset") \
+                    and edited.get(path, -1) < op["call"]:
+                unneeded = max(op.get("result", 0) - INDEX_CALL_TOKENS, 0)
+                if unneeded:
+                    add(MISSED_READ, carried(unneeded, op["at"]), 0,
+                        "`%s` → `curl -s \"$URL/api/type?name=%s\"`"
+                        % (os.path.basename(path), os.path.splitext(os.path.basename(path))[0]))
+    for name, ops in chains.items():
+        messages = sorted({op["call"] for op in ops})
+        if len(ops) < 2:
+            continue
+        add(MISSED_CHAIN, sum(carried(op["tokens"], op["at"]) for op in ops[1:]), len(messages) - 1,
+            "%d codeindex calls on `%s` → `curl -s \"$URL/api/type?name=%s\"`" % (len(ops), name, name))
+    return missed
+
+
+def analyse(transcript_path, session_id, roots, grep_suggestions=None):
     """{"total", "categories": {name: tokens}, "standardized", "savings": {name: {tokens, round_trips,
-    count}}, "estimated": True} — or None when the transcript is missing."""
+    count}}, "missed": {kind: {count, tokens, round_trips, examples}}, "estimated": True} — or None when
+    the transcript is missing. grep_suggestions(command) -> [suggestion tuple] flags a grep over C# for a
+    type or member name (session_lifecycle.type_grep_suggestions); without it no grep counts as missed."""
     if not transcript_path or not os.path.isfile(transcript_path):
         return None
     roots = [os.path.realpath(root) for root in roots]
@@ -282,8 +360,16 @@ def analyse(transcript_path, session_id, roots):
                 saving["count"] += 1
                 saving["round_trips"] += round_trips
                 saving["tokens"] += carried(max(avoided - op["tokens"] // len(hits), 0), op["at"])
+        if op["name"] == "Bash":
+            routes = re.findall(CODE_GRAPH_PATTERN, op["input"].get("command", ""))
+            for route in routes:
+                avoided, round_trips = GREP_BY_CODE_GRAPH_ROUTE[route]
+                saving = savings[CODE_GRAPH_SAVING]
+                saving["count"] += 1
+                saving["round_trips"] += round_trips
+                saving["tokens"] += carried(max(avoided - op["tokens"] // len(routes), 0), op["at"])
 
-    doc_review = {"count": 0, "tokens": 0, "equivalent": 0, "round_trips": 0, "commands": {},
+    doc_review ={"count": 0, "tokens": 0, "equivalent": 0, "round_trips": 0, "commands": {},
                   "miro_confluence": {"count": 0, "tokens": 0}}
     for op in order:
         commands = doc_review_commands(op["name"], op["input"])
@@ -309,8 +395,11 @@ def analyse(transcript_path, session_id, roots):
     assumptions = {tool: {"tokens": t, "round_trips": r} for tool, (t, r) in AVOIDED_BY_TOOL.items()}
     assumptions.update({"doc_review.py " + command: {"tokens": t, "round_trips": r}
                         for command, (t, r) in MIRO_CONFLUENCE_BY_COMMAND.items()})
+    assumptions.update({"code-graph /api/" + route: {"tokens": t, "round_trips": r}
+                        for route, (t, r) in GREP_BY_CODE_GRAPH_ROUTE.items()})
     return {"estimated": True, "total": total, "calls": len(calls), "categories": categories,
             "standardized": sum(categories[name] for name in STANDARDIZED), "savings": savings,
+            "missed": missed_opportunities(order, carried, grep_suggestions),
             "doc_review": doc_review, "assumptions": assumptions,
             "peak_context": max((context for _key, context, _output in calls), default=0),
             "last_context": calls[-1][1] if calls else 0}

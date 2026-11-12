@@ -2,6 +2,52 @@
 This project contains general rules that can be used by AI agents to better
 help with the development of other projects.
 
+## Installation
+
+Requires Claude Code (or Codex), git and stock `python3`. Clone this repository outside the host
+project, then run the installer from inside the project:
+
+```bash
+git clone git@github.com:aramirezJC/AIAgentCoreRules.git ~/Projects/AIAgentCoreRules
+cd <host project>
+~/Projects/AIAgentCoreRules/Tools/setup/install.sh check   # preview, writes nothing
+~/Projects/AIAgentCoreRules/Tools/setup/install.sh         # install
+```
+
+The first run links the clone as `<project>/GitIgnoredExternals/AIAgentCoreRules`, asks where
+the project's AI metadata should live, and sets up `.claude/settings.json` (session hooks,
+worktree settings), `.claude/skills/`, `CLAUDE.md` and `ai-agent-core.json`. Keep
+`GitIgnoredExternals/`, `.claude/`, `CLAUDE.md` and `GitIgnoreReports/` out of the project
+repository through your **global** gitignore (patterns `*GitIgnore*` and `*CLAUDE*`); the
+installer warns when `GitIgnoredExternals/` is not ignored. Restart Claude Code in the project afterwards.
+
+Run the first install yourself, in a terminal, not through Claude: it asks a question (Claude's
+shell and the `!` prefix have no TTY, so it stops), it writes the hooks and permissions in
+`.claude/settings.json`, and the session that ran it cannot load what it installed until it is
+restarted. Asking Claude to run `install.sh check` and explain the preview is fine, and so is
+letting it re-run the installer for an update.
+
+```bash
+# One-time global gitignore setup, if you have none yet
+git config --global core.excludesfile ~/.gitignore_global
+printf '*GitIgnore*\n*CLAUDE*\n' >> ~/.gitignore_global
+```
+
+To verify, start a new Claude Code session in the project: a **Session tracking (started)**
+block appears in the agent's context, and `/feature`, `/end-session` and the other commands are
+available.
+
+- Run the script with any shell (bash, zsh, sh); do not `source` it.
+- Scripts and CI: `install.sh --metadata-location externals --defaults` never prompts.
+- Codex: add `--agent codex` (or `--agent both`).
+- From elsewhere: `install.sh --project <path> …`.
+- A worktree made by hand with `git worktree add`: `install.sh prepare-worktree <path>` adds its
+  symlinks.
+- Updating: `git pull` in the clone, then re-run
+  `GitIgnoredExternals/AIAgentCoreRules/Tools/setup/install.sh` — it is safe to re-run.
+
+Details: [Setup](Documentation/01_Setup.md) and the [setup README](Tools/setup/README.md).
+
 ## Session Lifecycle
 
 `Tools/session-lifecycle/session_lifecycle.py` tracks every Claude Code session in the host
@@ -62,6 +108,33 @@ See [Feature State](Documentation/13_FeatureState.md),
 [agent state protocol](Processes/FeatureState.md) for commands, migration limits and lifecycle
 payloads. The [tool README](Tools/feature-state/README.md) includes focused-read and update examples.
 
+## Code Graph
+
+`Tools/code-graph/` serves a local, read-only browser view and JSON API over the codeindex
+database (`<project>/Library/codeindex.sqlite`, built by `Tools/unity-tools/codeindex.py`):
+search, an assembly → namespace → type tree, an inheritance graph and member lists with
+`file:line`. One `curl` gives an agent a type's bases, derived types, members and location.
+
+Run it from the host project root, not from `Tools/code-graph/` (that folder would become the
+project, and `start` warns that no database exists there):
+
+```bash
+# Start or reuse the project's server; start prints the URL.
+GitIgnoreExternals/AIAgentCoreRules/Tools/code-graph/code-graph.sh start
+GitIgnoreExternals/AIAgentCoreRules/Tools/code-graph/code-graph.sh status
+GitIgnoreExternals/AIAgentCoreRules/Tools/code-graph/code-graph.sh stop
+
+curl -s "$URL/api/type?name=IEventManager&members=0"   # bases, derived types, location
+```
+
+Adjust the external-root spelling for the host project, as above. Options: `--project <path>`,
+`--db <path>`, and `--refresh-cmd "<command line>"` to override what the page's **Force refresh
+index** button runs. By default it runs `codeindex.py build --force` for the same project and
+database; `--refresh-cmd ""` hides the button. The server outlives agent sessions, restarts itself
+on the next `start` when the tool code or options changed, and keeps its state and logs in
+`<project>/.code-graph/`. See the [tool README](Tools/code-graph/README.md) for the full API and
+[Code Graph](Documentation/15_CodeGraph.md) for the page.
+
 ## Documentation
 
 `Documentation/` holds Confluence-ready pages describing the framework (overview, setup, work
@@ -72,8 +145,8 @@ writes a Confluence-ready copy to `GitIgnoreConfluenceExport/`.
 
 ## Skills
 
-Install into a host project with `python3 Tools/setup/install.py` (run from the project; see
-`Tools/setup/README.md`). It links each folder into `<project>/.claude/skills/`, merges the
+Install into a host project with `Tools/setup/install.sh` (run from the project; see
+[Installation](#installation)). It links each folder into `<project>/.claude/skills/`, merges the
 session hooks and worktree settings into `.claude/settings.json`, and is safe to re-run.
 
 - `start-session`, `end-session`, `inaccuracy`, `iteration` — session lifecycle.
