@@ -134,6 +134,8 @@ routing:
   meta_review_of_sessions:        [../Processes/MetaReview.md]   # review past sessions · meta-analysis · weekly retro of retros
   publish_or_review_external_doc: [../Processes/ExternalDocPass.md]   # Confluence/Docs page · apply review comments (incl. doc-review preview comments) · publish a TDD
 
+  publish_git_github:            [../Skills/publish-work/SKILL.md]   # authorized commit, push and PR requests
+
   # Modes — decide this first, see "Classify the Mode" above
   investigate_or_preplan:         [./InvestigationMode.md]
   feasibility_or_comparison:      [./InvestigationMode.md]
@@ -184,6 +186,7 @@ commands:   # skills in ../Skills/ (project-specific ones in the host metadata r
   /reopen-feature [Name]: "return a closed (not complete) feature to in_progress; no name → choose from features --closed"
   /start-preview-server [Name]: "open a feature in the doc-review preview: Progress tab, TDD, diagrams"
   /feature-pr <PR> [Name] [V-phase]: "tie a PR to a feature's V-phase in its progress file, read its review notes, record addressed ones there"
+  /publish-work <request.json>: "one resumable invocation for authorized Git/GitHub publishing across all lanes"
   /publish-batch [plan|publish|status|finish]: "Phase 4: publish a task's C# in small batch PRs against the user branch, one at a time; change table per batch; next batch after merge"
   /kill-server [port|pid|all]: "stop a running doc-review preview server"
   /audit [files]:  "judgement review (SRP, interfaces, resources, method design, host rules) in a fresh forked subagent, once per step/batch; report only. Mechanical tags: cslint hook"

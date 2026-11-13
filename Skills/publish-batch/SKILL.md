@@ -66,14 +66,13 @@ plan:
 
 publish:
   - "Preconditions: one /audit run over the batch's files (Skill tool — a fresh subagent, not a self-review) with every violation fixed or reported, each file's cslint violations fixed or explained, and typecheck.py passes in the worktree. Any fails → fix or report, do not publish."
-  - "Stage only the batch's files by path (git add <files>, git rm <files>); never git add -A or ., and never a file outside the batch."
+  - "Read Skills/publish-work/SKILL.md. Prepare its request with only this batch's files; never include unrelated changes."
   - "New C# files have no .meta until Unity imports them: say so in the PR body; the engineer commits the generated .meta files after pulling."
   - "Commit message: the pr_title, then the attribution lines the session requires."
-  - "git push -u origin <branch>."
-  - "gh pr create --base <base> --head <branch> --title <pr_title> --body <body>. Body: 'Batch <k> of <N> — <FeatureName> <task_id> (<TDD V-phase>)', the change table, then the remaining batch titles, then the attribution line."
+  - "Prepare the publisher body_file. Body: 'Batch <k> of <N> — <FeatureName> <task_id> (<TDD V-phase>)', the change table, then the remaining batch titles, then the attribution line."
   - "Output the change table in the reply too (format below), followed by the PR URL."
-  - "Record: open_pr: <PR>, append <PR> to prs, and list the PR under pull_requests: V<n> (the task's V-phase) so the Progress tab shows its review notes. Add the session folder to `sessions` if missing."
-  - "Review fixes on an open PR: address notes through /feature-pr <PR>; commit the fixes to the same branch and push — no new PR. Output a change table for the fix commit as well."
+  - "Run the publisher once with the feature section so it commits, pushes, creates/finds the PR, and records batch open_pr/prs, V-phase PR linkage and session membership through feature-state. On partial failure, resume the unchanged request; never repeat completed Git operations manually."
+  - "Review fixes on an open PR: address notes through /feature-pr <PR>; prepare a new publishing request on the same branch, which reuses the open PR — no new PR. Output a change table for the fix commit as well."
 
 status:
   - "gh pr view <open_pr> --json state,mergedAt,url."
@@ -141,6 +140,6 @@ rules:
   - "A merged PR is the engineer's acknowledgment for every file in it (Phase 4 per-file acknowledgment)."
   - "Never push to <base> directly, never force-push, never merge a PR yourself — the engineer merges on GitHub."
   - "Write only to the progress file of the chosen feature; never edit a block under 'Gates Passed'."
-  - "Progress file write refused (background job guard) → print the exact yaml lines for the engineer to paste and say so; do not skip the record."
-  - "gh failing (not logged in, wrong repo) → report its error line and stop; suggest `! gh auth login`."
+  - "Feature-state write refused → report publication as incomplete and retain the publisher resume command; never suggest pasting YAML into generated Progress Markdown."
+  - "Publisher prerequisite or authentication failure → report its concise setup guidance and stop; do not fall back to connectors or browser automation."
 ```
