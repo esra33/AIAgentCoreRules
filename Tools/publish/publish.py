@@ -73,6 +73,7 @@ def read_request(path):
             raise Blocked("feature session must be an existing session folder name")
         feature["directory"] = str((path.parent / feature["directory"]).resolve())
     fingerprint = hashlib.sha256(json.dumps({"request": request, "body": body}, sort_keys=True).encode()).hexdigest()
+    request["_body"] = body
     return request, fingerprint
 
 
@@ -281,9 +282,12 @@ class Publisher:
         self.pr = self.find_pr()
         if self.pr is None:
             try:
-                gh(self.repo, "pr", "create", "--repo", self.repository, "--base", self.request["base"],
-                   "--head", self.request["branch"], "--title", self.request["pr_title"],
-                   "--body-file", self.request["body_file"])
+                with tempfile.TemporaryDirectory(prefix="agent-publish-body-") as temporary:
+                    body_path = Path(temporary) / "body.md"
+                    body_path.write_text(self.request["_body"])
+                    gh(self.repo, "pr", "create", "--repo", self.repository, "--base", self.request["base"],
+                       "--head", self.request["branch"], "--title", self.request["pr_title"],
+                       "--body-file", str(body_path))
             except Blocked:
                 self.pr = self.find_pr()
                 if self.pr is None:
