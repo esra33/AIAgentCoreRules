@@ -124,6 +124,76 @@ async function selectTextInActivePanel(page, text) {
   }, text);
 }
 
+// Browser progression stays read-only; updates below use the agent's public CLI.
+async function integrationChecklistSmoke(browser) {
+  const fixture = mkdtempSync(join(tmpdir(), "integration-checklist-smoke-"));
+  const stateTool = join(TOOL_DIR, "..", "feature-state", "feature_state.py");
+  const root = join(fixture, "Features");
+  execFileSync("python3", ["-c", `
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).parent))
+import feature_state
+for name in ('Alpha', 'Beta'):
+    folder = Path(sys.argv[2]) / name
+    state = feature_state.create_state(folder, name)
+    state['current_phase'] = '6_integration'
+    feature_state.save_state(folder, state)
+`, stateTool, root]);
+  const items = [
+    {id: "factory", title: "Factory <registration>", status: "done", notes: '<script>window.checklistInjected=true</script> & evidence'},
+    {id: "compile", title: "Compile package", status: "in_progress", notes: "Compiler evidence pending"},
+    {id: "manual", title: "Host acceptance", status: "todo", notes: ""},
+    {id: "generation", title: "Code generation", status: "not_applicable", notes: "No generators required"}
+  ];
+  function recordItems() {
+    const directory = join(root, "Alpha");
+    const revision = JSON.parse(readFileSync(join(directory, "state.json"), "utf8")).revision;
+    const payload = join(fixture, "items.json");
+    writeFileSync(payload, JSON.stringify({items}));
+    execFileSync("python3", [stateTool, "integration-checklist", directory, "--payload", payload, "--revision", String(revision)]);
+  }
+  recordItems();
+  const proc = spawn("python3", ["doc_review.py", "serve-project", fixture, "--features-root", root], {cwd: TOOL_DIR});
+  let page;
+  try {
+    const url = await waitForServerUrl(proc);
+    page = await browser.newPage();
+    await page.goto(url + "?feature=Alpha", {waitUntil: "networkidle0"});
+    await page.click('.tab[data-i="1"]');
+    await page.waitForSelector('.panel.active .integration-checklist li.in_progress');
+    check(await page.$eval('.checklist-counts', el => el.textContent.includes("1 completed, 1 not applicable, 2 remaining (4 total)")), "checklist shows separate outcome counts");
+    check(await page.$eval('.checklist-current', el => el.textContent === "Current: Compile package"), "checklist identifies persisted current item");
+    check(await page.$eval('[data-checklist-id="factory"]', el => el.textContent.includes("Factory <registration>")) &&
+      await page.evaluate(() => !window.checklistInjected && !document.querySelector('.integration-checklist script')), "checklist title and notes are escaped text");
+    await page.click('details[data-key="integration:factory"] summary');
+    await page.evaluate(() => {
+      window.checklistMutations = 0;
+      window.checklistObserver = new MutationObserver(records => { window.checklistMutations += records.length; });
+      window.checklistObserver.observe(document.querySelector('.integration-checklist'), {subtree: true, childList: true, attributes: true, characterData: true});
+    });
+    await new Promise(resolve => setTimeout(resolve, 2300));
+    check(await page.evaluate(() => window.checklistMutations === 0), "idle polling does not mutate unchanged checklist");
+    items[1].status = "done";
+    items[2].status = "in_progress";
+    recordItems();
+    await page.waitForFunction(() => document.querySelector('.checklist-current')?.textContent === "Current: Host acceptance", {timeout: 5000});
+    check(await page.$eval('details[data-key="integration:factory"]', el => el.open), "open checklist evidence survives source refresh");
+    check(await page.$eval('.checklist-counts', el => el.textContent.includes("2 completed, 1 not applicable, 1 remaining")), "CLI update refreshes checklist counts");
+    await page.goto(url + "?feature=Beta", {waitUntil: "networkidle0"});
+    await page.click('.tab[data-i="1"]');
+    check(await page.$eval('.integration-checklist', el => el.textContent.includes("Checklist not recorded")), "feature switch isolates checklist state");
+    await page.goto(url + "?feature=Alpha", {waitUntil: "networkidle0"});
+    await page.reload({waitUntil: "networkidle0"});
+    await page.click('.tab[data-i="1"]');
+    check(await page.$eval('.checklist-current', el => el.textContent === "Current: Host acceptance"), "walkthrough survives feature switch and reload");
+  } finally {
+    if (page) await page.close();
+    proc.kill("SIGTERM");
+    rmSync(fixture, {recursive: true, force: true});
+  }
+}
+
 // --- Fixture: writes its own files, no --demo dependency. ---
 const tmp = mkdtempSync(join(tmpdir(), "review-ui-smoke-"));
 const docPath = join(tmp, "Doc.md");
@@ -496,6 +566,7 @@ try {
     offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
   });
   await cdp.detach(); // [RES]: release the session acquired via createCDPSession() above
+  await integrationChecklistSmoke(browser);
 } catch (err) {
   hardFailure = err;
   console.error("[review_ui_smoke] CRASHED:", err.message);

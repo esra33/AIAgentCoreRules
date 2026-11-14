@@ -59,6 +59,92 @@ class FeatureStateTests(unittest.TestCase):
         self.assertEqual(state["current_phase"], "2_discovery")
         self.assertEqual(len(state["gates"]), 1)
 
+    def test_phase8_report_required_and_confirmation_preserved(self):
+        state = create_state(self.directory)
+        state["current_phase"] = "8_retrospective"
+        (self.directory / "state.json").write_text(json.dumps(state))
+        payload = {"phase_completed": "Phase 8 — Retrospective", "gate_confirmed_by": "Engineer"}
+        with self.assertRaises(StateError):
+            update_state(self.directory, "gate", payload, state["revision"])
+        state = update_state(self.directory, "phase-report", {"phase": "8_retrospective", "path": "Feature_Retrospective.md"}, state["revision"])
+        self.assertIn("Feature_Retrospective.md", state["artifacts"])
+        with self.assertRaises(StateError):
+            update_state(self.directory, "gate", {"phase_completed": "Phase 8"}, state["revision"])
+        state = update_state(self.directory, "gate", payload, state["revision"])
+        self.assertEqual(state["status"], "complete")
+
+    def test_older_completed_feature_without_report_still_loads(self):
+        state = create_state(self.directory)
+        state.update(current_phase="8_retrospective", status="complete")
+        (self.directory / "state.json").write_text(json.dumps(state))
+        self.assertEqual(load_state(self.directory)["status"], "complete")
+
+    def phase6(self):
+        state = create_state(self.directory)
+        state["current_phase"] = "6_integration"
+        state["checkpoint"] = {"next": "Engineer walkthrough"}
+        (self.directory / "state.json").write_text(json.dumps(state))
+        return state
+
+    def test_integration_checklist_preserves_unrelated_state_and_history(self):
+        state = self.phase6()
+        items = [{"id": "I1", "title": "Compile", "status": "done", "notes": "Editor clean"},
+                 {"id": "I2", "title": "Registry", "status": "not_applicable", "notes": "No registry"}]
+        state = update_state(self.directory, "integration-checklist", {"items": items}, state["revision"])
+        self.assertEqual(state["integration_checklist"], items)
+        self.assertEqual(state["checkpoint"], {"next": "Engineer walkthrough"})
+        projection = (self.directory / "Feature_Progress.md").read_text()
+        self.assertIn('"notes": "Editor clean"', projection)
+        self.assertLess(projection.index('"id": "I1"'), projection.index('"id": "I2"'))
+        self.assertLess(projection.index("## Checkpoint"), projection.index("## Integration checklist"))
+        self.assertLess(projection.index("## Integration checklist"), projection.index("## Gates Passed"))
+        with self.assertRaises(StateError):
+            update_state(self.directory, "gate", {"phase_completed": "Phase 6", "next_phase": "7_verification"}, state["revision"])
+        state = update_state(self.directory, "phase-report", {"phase": "6_integration", "path": "Integration.md"}, state["revision"])
+        state = update_state(self.directory, "gate", {"phase_completed": "Phase 6", "gate_confirmed_by": "Engineer", "next_phase": "7_verification"}, state["revision"])
+        self.assertEqual(state["integration_checklist"], items)
+        self.assertEqual(load_state(self.directory)["integration_checklist"], items)
+        with self.assertRaises(StateError):
+            update_state(self.directory, "integration-checklist", {"items": []}, state["revision"])
+
+    def test_invalid_integration_checklist_never_writes(self):
+        self.phase6()
+        valid = {"id": "I1", "title": "Compile", "status": "todo", "notes": ""}
+        invalid = [None, {}, [None], [dict(valid, id=" ")], [dict(valid, title="")],
+                   [dict(valid, status="unknown")], [dict(valid, notes=1)],
+                   [dict(valid, status="not_applicable", notes=" ")], [valid, valid],
+                   [dict(valid, status="in_progress"), dict(valid, id="I2", status="in_progress")]]
+        before = {p.name: p.read_bytes() for p in (self.directory / "state.json", self.directory / "Feature_Progress.md")}
+        for items in invalid:
+            with self.subTest(items=items), self.assertRaises(StateError):
+                update_state(self.directory, "integration-checklist", {"items": items}, 1)
+        for payload in ({}, {"items": [], "checkpoint": {}}):
+            with self.assertRaises(StateError):
+                update_state(self.directory, "integration-checklist", payload, 1)
+        self.assertEqual(before, {self.directory.joinpath(n).name: self.directory.joinpath(n).read_bytes() for n in before})
+
+    def test_integration_checklist_stale_wrong_phase_and_closed_refused(self):
+        state = self.phase6()
+        state = update_state(self.directory, "integration-checklist", {"items": [{"id": "I1", "title": "Compile", "status": "in_progress", "notes": "Running"}]}, 1)
+        before = (self.directory / "state.json").read_bytes(), (self.directory / "Feature_Progress.md").read_bytes()
+        with self.assertRaises(StateError):
+            update_state(self.directory, "integration-checklist", {"items": []}, 1)
+        self.assertEqual(before, ((self.directory / "state.json").read_bytes(), (self.directory / "Feature_Progress.md").read_bytes()))
+        for phase, status in (("5_unit_tests", "in_progress"), ("6_integration", "on_hold"), ("6_integration", "complete")):
+            state.update(current_phase=phase, status=status)
+            (self.directory / "state.json").write_text(json.dumps(state))
+            with self.assertRaises(StateError):
+                update_state(self.directory, "integration-checklist", {"items": []}, state["revision"])
+
+    def test_historical_integration_checklist_defaults_without_invented_outcomes(self):
+        state = create_state(self.directory)
+        del state["integration_checklist"]
+        (self.directory / "state.json").write_text(json.dumps(state))
+        self.assertEqual(load_state(self.directory)["integration_checklist"], [])
+        state = update_state(self.directory, "render", {}, state["revision"])
+        self.assertIn("Checklist not recorded", (self.directory / "Feature_Progress.md").read_text())
+        self.assertEqual(state["revision"], 1)
+
     def test_artifact_escape_rejected_without_write(self):
         create_state(self.directory)
         with self.assertRaises(StateError):

@@ -93,6 +93,14 @@ PAGE_TEMPLATE = """<!doctype html>
   .phase ul.findings li {{ margin: 2px 0; }}
   .phase .stage {{ margin: 8px 0 0 4px; font-size: 13px; color: #9aa3b5; font-weight: 600; }}
   .phase .stage + ul {{ padding-left: 16px; }}
+  .integration-checklist {{ margin: 12px 0; padding: 10px; border: 1px solid #4a5468; border-radius: 5px; }}
+  .integration-checklist h3 {{ margin: 0 0 4px; font-size: 15px; }}
+  .integration-checklist ol {{ margin: 8px 0; padding-left: 24px; }}
+  .integration-checklist li {{ padding: 4px; }}
+  .integration-checklist li.in_progress {{ border-left: 3px solid var(--current); background: #23304a; }}
+  .integration-checklist .outcome {{ margin-left: 8px; font-size: 12px; color: #b7bcc7; }}
+  .integration-checklist summary {{ cursor: pointer; }}
+  .integration-checklist .evidence {{ white-space: pre-wrap; margin: 4px 0; }}
   .gate {{ margin-top: 8px; font-size: 13px; color: #9aa3b5; }}
   .gate.pending {{ color: var(--gate); font-weight: 600; }}
   /* Implementation V-phases from the TDD: a Tasks and a PR notes collapsible each. */
@@ -238,6 +246,32 @@ PAGE_TEMPLATE = """<!doctype html>
     return parts.join("");
   }}
 
+  function integrationChecklistHtml(checklist) {{
+    if (!checklist) return "";
+    const parts = ['<section class="integration-checklist"><h3>Integration checklist</h3>'];
+    if (!checklist.recorded) {{
+      return parts.join("") + '<p>Checklist not recorded.</p></section>';
+    }}
+    parts.push('<p class="checklist-counts">' + checklist.completed + ' completed, '
+      + checklist.not_applicable + ' not applicable, ' + checklist.remaining + ' remaining (' + checklist.total + ' total)</p>');
+    const current = checklist.items.find((item) => item.id === checklist.current_id);
+    const next = checklist.items.find((item) => item.id === checklist.next_id);
+    parts.push('<p class="checklist-current">' + (current ? 'Current: ' + escapeHtml(current.title)
+      : next ? 'Next: ' + escapeHtml(next.title) : 'All recorded items resolved.') + '</p><ol>');
+    const labels = {{todo: 'To do', in_progress: 'Current', done: 'Completed', not_applicable: 'Not applicable'}};
+    checklist.items.forEach((item) => {{
+      parts.push('<li class="' + escapeHtml(item.status) + '" data-checklist-id="' + escapeHtml(item.id) + '">'
+        + escapeHtml(item.title) + '<span class="outcome">' + escapeHtml(labels[item.status]) + '</span>');
+      if (item.notes) {{
+        parts.push('<details data-key="integration:' + escapeHtml(item.id) + '"><summary>Evidence and notes</summary>'
+          + '<div class="evidence">' + escapeHtml(item.notes) + '</div></details>');
+      }}
+      parts.push('</li>');
+    }});
+    parts.push('</ol><p class="meta">Progress is recorded by the agent. Gate 6 approval remains separate.</p></section>');
+    return parts.join("");
+  }}
+
   function renderProgress(id, src) {{
     const target = document.getElementById(id);
     try {{
@@ -273,6 +307,7 @@ PAGE_TEMPLATE = """<!doctype html>
           parts.push('</li>');
         }});
         parts.push('</ul>');
+        parts.push(integrationChecklistHtml(phase.integration_checklist));
         // The TDD's V-phases replace the task list when the TDD has them.
         const devPhases = phase.dev_phases || [];
         (devPhases.length ? [] : phase.stages).forEach((stage) => {{
@@ -807,6 +842,11 @@ class ReviewRequestHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+def _script_json(data) -> str:
+    # JSON string quoting alone does not stop the HTML parser ending an inline script.
+    return json.dumps(data).replace("<", r"\u003c")
+
+
 def build_page(paths: List[Path], live: bool, tabs: Optional[List[Dict]] = None) -> str:
     tabs = _tabs(paths) if tabs is None else tabs
     tab_buttons = "\n".join(
@@ -814,8 +854,8 @@ def build_page(paths: List[Path], live: bool, tabs: Optional[List[Dict]] = None)
         for i, tab in enumerate(tabs)
     )
     panels = "\n".join(_panel_html(i, tab) for i, tab in enumerate(tabs))
-    tab_paths_js = json.dumps({tab["id"]: _mtime_key(tab) for tab in tabs})
-    doc_review_js = json.dumps({"tabs": [{"id": tab["id"], "file": tab["file"], "kind": tab["kind"]} for tab in tabs]})
+    tab_paths_js = _script_json({tab["id"]: _mtime_key(tab) for tab in tabs})
+    doc_review_js = _script_json({"tabs": [{"id": tab["id"], "file": tab["file"], "kind": tab["kind"]} for tab in tabs]})
 
     live_script = ""
     live_head_extra = ""
@@ -841,8 +881,8 @@ def build_page(paths: List[Path], live: bool, tabs: Optional[List[Dict]] = None)
         else "LocalDocReview -- static preview, not published anywhere",
         tab_buttons=tab_buttons,
         panels=panels,
-        tab_kinds_js=json.dumps({tab["id"]: tab["kind"] for tab in tabs}),
-        sources_js=json.dumps(_collect_sources(tabs)),
+        tab_kinds_js=_script_json({tab["id"]: tab["kind"] for tab in tabs}),
+        sources_js=_script_json(_collect_sources(tabs)),
         live_script=live_script,
         live_head_extra=live_head_extra,
         live_module_script=live_module_script,

@@ -351,3 +351,6 @@ and explicit migration for legacy features. Preserve engineer approval gates.
 
 Lifecycle skills retain engineer approvals while using these validated operations.
 Home and active-feature listings share per-feature JSON state; no central registry is authoritative.
+
+
+Phase 8 automatically publishes its full seven-step investigation to `<FeatureName>_Retrospective.md` in the feature folder and registers the preview report tab. Session `retro.md` links to that report, retaining session accounting and Applied outcomes. No intermediate acknowledgment is needed to finish the report; applying recommendations and Gate 8 still require approval.

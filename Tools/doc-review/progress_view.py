@@ -204,6 +204,7 @@ def build_model(progress_path: Path, process_dir: Path = CREATE_FEATURE_DIR,
                 "steps": steps,
                 "stages": stages if phase["key"] == IMPLEMENTATION_PHASE_KEY else [],
                 "dev_phases": dev_phases if phase["key"] == IMPLEMENTATION_PHASE_KEY else [],
+                "integration_checklist": _integration_checklist(state) if phase["key"] == "6_integration" else None,
             }
         )
 
@@ -217,6 +218,17 @@ def build_model(progress_path: Path, process_dir: Path = CREATE_FEATURE_DIR,
         "next_gate_phase": _next_gate_phase(phases),
         "phases": phases,
     }
+
+
+def _integration_checklist(state: Optional[Dict]) -> Dict:
+    items = [dict(item) for item in state.get("integration_checklist", [])] if state else []
+    done = sum(item["status"] == "done" for item in items)
+    not_applicable = sum(item["status"] == "not_applicable" for item in items)
+    current = next((item["id"] for item in items if item["status"] == "in_progress"), None)
+    next_item = next((item["id"] for item in items if item["status"] == "todo"), None)
+    return {"items": items, "recorded": bool(items), "total": len(items), "completed": done,
+            "not_applicable": not_applicable, "remaining": len(items) - done - not_applicable,
+            "current_id": current, "next_id": next_item}
 
 
 def _next_gate_phase(phases: List[Dict]) -> Optional[str]:

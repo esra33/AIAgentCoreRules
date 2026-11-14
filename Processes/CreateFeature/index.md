@@ -76,7 +76,7 @@ but not written to the progress file is lost to the next session.
 
 ## Phase Report Convention
 
-For phases 2 through 7, before presenting the phase's gate summary to the engineer for approval:
+For phases 2 through 8, before presenting the phase's gate summary to the engineer for approval:
 
 1. Generate `<FeatureName>_<ReportLabel>.md` summarizing that phase's work and findings
 2. Save it to the feature's working folder (alongside other feature documents)
@@ -88,7 +88,7 @@ For phases 2 through 7, before presenting the phase's gate summary to the engine
    ```
 4. The preview server will then show that report as a persistent tab (Phase N: Label Report)
 
-The report becomes the artifact the engineer reviews to decide gate approval — a "final review moment" before the gate is recorded. Phases 1 and 8 are exempt: Phase 1 already produces four documents (GDD/TDD/TaskList/UseCases) before its gate; Phase 8 writes retro.md into the session reports folder.
+The report becomes the artifact the engineer reviews to decide gate approval — a "final review moment" before the gate is recorded. Phase 1 is exempt because it produces four documents before its gate. Phase 8 produces `<FeatureName>_Retrospective.md` automatically and registers it before Gate 8; session retro.md links to this authoritative feature report.
 
 ---
 
@@ -154,7 +154,8 @@ phases:
   8_retrospective:
     file: ./Phase8_Retrospective.md
     goal: Identify discovery gaps, missing patterns, gotchas, and process improvements; write approved changes to metadata files
-    gate: All approved changes written and confirmed by engineer
+    report: <FeatureName>_Retrospective.md
+    gate: Report registered; all approved changes written and confirmed by engineer
     recommended_agent: general-purpose  # run via /end-session
     recommended_model: sonnet
 ```

@@ -8,7 +8,11 @@ Progress Markdown is generated; references to writing its fields mean tool opera
 
 Goal: Extract durable improvements from this feature's implementation cycle. Every answer that becomes a rule, pattern, or system entry reduces cost and back-and-forth on the next feature.
 
-This phase is a conversation — the agent reviews the session, proposes concrete changes, and the engineer confirms before anything is written.
+The agent completes Steps 1–7 automatically, without intermediate engineer acknowledgments. Write the investigation report before asking for approval. Engineer approval is required only to apply proposed improvements and complete Gate 8.
+
+Delegate independent evidence gathering in parallel when supported: discovery/patterns; gotchas/rules/process; benchmarks and earlier proposals. Prefer a cheaper available model for bounded extraction. Give workers read-only assignments with evidence references; the primary agent verifies and reconciles findings and owns report/state writes. If delegation is unavailable, complete the same steps sequentially.
+
+For every step, record findings, evidence, proposed actions and limitations; explicitly state when there are no findings. Send only a short TL;DR per step and the preview link in chat, never the full report.
 
 ---
 
@@ -94,7 +98,7 @@ Before producing the report, compile the session metrics.
 ```yaml
 steps:
   - Run the lifecycle script `compile --final` for this session (done by /end-session).
-  - Read metrics.md of this session AND of every session folder listed under `sessions` in [FeatureName]_Progress.md. Match each entry by its id8 suffix (`ls -d GitIgnoreReports/Sessions/*_<id8>`), not its full name — a lane change renames the folder. Also include sessions tagged with this feature that the list missed: `grep -l '"feature": "[FeatureName]"' GitIgnoreReports/Sessions/*/session.json`. Never match on folder names: the title is not always in them.
+  - Read metrics.md of this session AND of every session folder listed under `sessions` in [FeatureName]_Progress.md. Deduplicate by session id8. Match each entry by its id8 suffix (`ls -d GitIgnoreReports/Sessions/*_<id8>`), not its full name — a lane change renames the folder. Also include sessions tagged with this feature that the list missed: `grep -l '"feature": "[FeatureName]"' GitIgnoreReports/Sessions/*/session.json`. Never match on folder names: the title is not always in them.
   - Sum tokens, inaccuracies and iterations across those sessions, and report them per phase as well (one session per phase; several sittings of one phase add up).
   - Read each earlier phase session's retro.md (the short phase retros). Their Corrections, Discovery gaps and Proposed changes feed Steps 1–5; carry over proposals not yet applied instead of re-deriving them.
   - Use each session's router trace to answer Steps 1 and 5 (what was loaded late, what was never loaded).
@@ -102,13 +106,13 @@ steps:
   - Calculate quality rating per phase: smooth | required_correction | required_redesign.
 ```
 
-If a session has no metrics.md, note it in the report and estimate from conversation history.
+If telemetry is unavailable, identify the missing coverage explicitly. Label any conversation-based estimates separately; never substitute estimates for measured totals or invent unavailable figures.
 
 ---
 
 ## Step 7 — Retrospective Report
 
-Produce a summary of proposed changes before writing anything:
+Synthesize the investigations and produce a summary of proposed changes:
 
 ```yaml
 retrospective_report:
@@ -138,7 +142,9 @@ retrospective_report:
       phase_7_verification:   ""
 ```
 
-Present the report to the engineer. Do not write any file until the report is confirmed.
+Write the full report to `<feature-directory>/<FeatureName>_Retrospective.md` with Unity metadata when applicable. Include sections for all seven steps, measured versus estimated benchmarks, unresolved evidence gaps, and numbered recommendations. Check whether earlier proposals were already applied before repeating them.
+
+Register the Markdown through `feature-state phase-report` with phase `8_retrospective` and the current revision. Start or reuse the project preview server, open the feature report tab, and verify the rendered report and links. Record report readiness in the checkpoint; do not advance Gate 8. The report is authoritative for the full retrospective. Session `retro.md` links to it and retains session accounting and applied-change outcomes. Report creation and registration require no engineer acknowledgment.
 
 ---
 

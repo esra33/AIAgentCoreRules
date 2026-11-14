@@ -28,8 +28,9 @@ Run the shared CLI from the project root, resolving `<state-tool>` to
   `artifacts`, `sources_of_truth`, `sessions`, and active `status`. Preserve fields not being
   changed. Checkpoint content follows the process and engineer acknowledgments below.
 - Gates use `gate` with `phase_completed`, `gate_confirmed_by`, `next_phase` and the handoff
-  details. `phase_completed` must match the current phase; `next_phase` must be the exact
-  next numbered phase. Phase 8 omits `next_phase` and completes the feature.
+  details. `phase_completed` uses a label beginning with `Phase N` (for example, `"Phase 7 — Verification"`),
+  not the machine key used by `current_phase`; `next_phase` uses the exact next machine key
+  (for example, `"8_retrospective"`). Phase 8 omits `next_phase` and completes the feature.
   Call only after explicit engineer approval; never rewrite or duplicate prior gates.
 - PR linkage uses `pr` with `{"phase":"V0","number":123}`. Batch updates use `batch` with
   `{"task_id":"T1","value":{...}}`; preserve the complete existing batch value.
@@ -41,3 +42,21 @@ Run the shared CLI from the project root, resolving `<state-tool>` to
 - Each successful mutation regenerates Progress Markdown. Do not parse it back into state.
 
 Lifecycle skills retain all engineer approvals. Pass payloads as JSON objects, never inline shell substitutions.
+
+
+## Integration checklist
+
+The optional `integration_checklist` ordered list defaults to empty for historical features.
+Each item has a unique nonempty string `id`, nonempty string `title`, `status` of `todo`,
+`in_progress`, `done` or `not_applicable`, and string `notes`. At most one item is
+`in_progress`; `not_applicable` requires a nonblank reason in `notes`.
+
+Read it with `get <feature-directory> --section integration_checklist`. Replace only this
+list through `integration-checklist <feature-directory> --payload <file> --revision <N>`
+using an exact object `{"items": [...]}`. This operation is restricted to active Phase 6
+(`in_progress` or `at_gate`); stale revisions and invalid items leave state and generated
+Progress unchanged. Reconcile before retrying. The agent updates the checklist as the
+engineer walks through items; preview progression is read-only. Gate 6 still requires
+explicit engineer approval. Checklist history survives gate transitions. Missing historical
+checklists display “Checklist not recorded”; never infer prior outcomes. Generated Progress
+includes the ordered checklist and notes; do not edit it directly.

@@ -611,5 +611,91 @@ class PrNotesTests(unittest.TestCase):
         self.assertEqual((pr["number"], pr["error"], pr["notes"]), (8, "gh pr failed: not logged in", []))
 
 
+
+
+class IntegrationChecklistTests(ProgressViewTestBase):
+    def setUp(self):
+        super().setUp()
+        with (self.process_dir / "index.md").open("a") as handle:
+            handle.write("\n  6_integration:\n    file: ./Phase6_Integration.md\n    gate: Integration approved\n")
+        (self.process_dir / "Phase6_Integration.md").write_text("## Integration Checklist\n")
+        import feature_state
+        self.state = feature_state.create_state(self.feature_dir, "Demo")
+        self.state["current_phase"] = "6_integration"
+
+    def checklist(self):
+        (self.feature_dir / "state.json").write_text(json.dumps(self.state))
+        return self.phase(self.model(), "6_integration")["integration_checklist"]
+
+    def test_order_current_next_and_counts_come_from_state(self):
+        self.state["integration_checklist"] = [
+            {"id": "first", "title": "Registered", "status": "done", "notes": "Evidence"},
+            {"id": "second", "title": "Generate", "status": "not_applicable", "notes": "No generator"},
+            {"id": "third", "title": "Compile", "status": "in_progress", "notes": "Running"},
+            {"id": "fourth", "title": "Manual", "status": "todo", "notes": ""}]
+        result = self.checklist()
+        self.assertEqual([item["id"] for item in result["items"]], ["first", "second", "third", "fourth"])
+        self.assertEqual((result["completed"], result["not_applicable"], result["remaining"], result["total"]), (1, 1, 2, 4))
+        self.assertEqual((result["current_id"], result["next_id"]), ("third", "fourth"))
+        self.assertTrue(result["recorded"])
+        self.assertIsNone(self.phase(self.model(), "4_implementation")["integration_checklist"])
+
+    def test_no_recorded_checklist_does_not_invent_past_outcomes(self):
+        self.state.pop("integration_checklist", None)
+        self.state["current_phase"] = "7_verification"
+        self.state["gates"] = [{"phase_completed": "Phase 6 — Integration"}]
+        result = self.checklist()
+        self.assertFalse(result["recorded"])
+        self.assertEqual(result["items"], [])
+
+    def test_history_and_evidence_survive_later_phase(self):
+        self.state["integration_checklist"] = [{"id": "a", "title": "A < B", "status": "done", "notes": "x <script> & \"quote\""}]
+        self.state["current_phase"] = "7_verification"
+        self.state["gates"] = [{"phase_completed": "Phase 6 — Integration"}]
+        result = self.checklist()
+        self.assertEqual(result["items"], self.state["integration_checklist"])
+        self.assertEqual(result["remaining"], 0)
+        self.assertIsNone(result["current_id"])
+        self.assertIsNone(result["next_id"])
+
+    def test_inline_json_cannot_close_script_and_preserves_notes(self):
+        from html.parser import HTMLParser
+        import re
+        class ScriptCounter(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.count = 0
+            def handle_starttag(self, tag, attrs):
+                if tag == "script":
+                    self.count += 1
+        self.state["integration_checklist"] = [{"id": "a", "title": "A", "status": "done", "notes": "safe"}]
+        self.checklist()
+        tabs = [{"id": "d0", "title": "Plan", "kind": "progress", "file": "#progress", "path": self.progress_path}]
+        with mock.patch.object(review_server, "build_model", side_effect=lambda path: self.model()):
+            baseline = review_server.build_page([self.doc_path], live=True, tabs=tabs)
+            hostile = '</ScRiPt><script>window.checklistInjected=true</script> & evidence'
+            self.state["integration_checklist"][0]["notes"] = hostile
+            self.checklist()
+            tabs[0]["file"] = hostile
+            page = review_server.build_page([self.doc_path], live=True, tabs=tabs)
+        before = ScriptCounter()
+        before.feed(baseline)
+        after = ScriptCounter()
+        after.feed(page)
+        self.assertEqual(after.count, before.count, "hostile notes must not create script elements")
+        embedded = re.search(r"const sources = (.*);", page).group(1)
+        self.assertNotIn("<", embedded)
+        decoded = json.loads(json.loads(embedded)["d0"])
+        phase = next(phase for phase in decoded["phases"] if phase["key"] == "6_integration")
+        self.assertEqual(phase["integration_checklist"]["items"][0]["notes"], hostile)
+        self.assertNotIn(hostile, page)
+
+    def test_legacy_markdown_checklist_is_explicitly_unrecorded(self):
+        (self.feature_dir / "state.json").unlink(missing_ok=True)
+        self.write_progress("6_integration")
+        result = self.phase(self.model(), "6_integration")["integration_checklist"]
+        self.assertFalse(result["recorded"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -185,3 +185,22 @@ healthy old server; config and setup-resolver edits do not trigger automatic res
 An explicit feature-root override bypasses config lookup and its validation.
 Comments remain in each feature's `review.json`; move the whole directory to retain anchors.
 See [[01_Setup|Setup]].
+
+
+Phase 8 reports use the existing phase-report tab mechanism: register `<FeatureName>_Retrospective.md` with phase `8_retrospective` to expose **Phase 8: Retrospective Report**. Report creation and registration are automatic; applying its recommendations requires engineer approval.
+
+
+## Phase 6 integration walkthrough
+
+Plan displays the selected feature's persisted `integration_checklist` under Phase 6:
+ordered items, current item (or next pending item), completed/not-applicable/remaining counts,
+and expandable evidence/notes. Notes are plain text. Open evidence panels survive live source
+refresh; unchanged polling leaves the checklist DOM alone. Item state survives page reloads
+and feature switching because it comes from feature state.
+
+The browser displays progression read-only. The agent records the complete item list through
+`feature_state.py integration-checklist <feature-directory> --payload <file.json> --revision <N>`.
+See [[13_FeatureState|Feature State]] for the validated payload. The agent walks through one
+item at a time, waits for actual results on manual checks, and records evidence before advancing.
+Gate 6 approval remains an explicit engineer decision. Recorded outcomes remain visible in later
+phases; old features with no item data show “Checklist not recorded.”

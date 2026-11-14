@@ -143,7 +143,13 @@ every changed page, and any task the delta added or split is added to `TaskList.
 
 ### Phase 4 — Implementation
 
-Order: interfaces → concrete classes → integration glue. Before the first file the agent
+Implement dependency slices in the approved task/batch order: each slice establishes its
+required interfaces/contracts before concrete services, then integration glue; unrelated later
+interfaces need not be written first. Before each batch, reconcile the authoritative checkpoint,
+task and batch state with the approved plan. Resume unfinished work before advancing a V-phase.
+Reuse permanent tests and dependency-ledger evidence before creating a custom probe; record
+the remaining evidence gap and probe result in the checkpoint. This adds no approval gate.
+Before the first file the agent
 re-reads the rule files, because Phase 2 may be several sessions ago. Every file's cslint
 violations (reported by the hook after each edit) are fixed or explained **before** it is
 presented to the engineer (recorded as `(linted)` in the checkpoint); the next file is not
@@ -184,6 +190,13 @@ generators (for example a JSON parser generator window) are listed with exact me
 the engineer to run. Changed C# files (not generated ones) are run through one `/audit` before the
 gate.
 
+The agent records concrete ordered checks through the feature-state `integration-checklist`
+command, then walks through one current item at a time. Plan shows current item,
+completed/not-applicable/remaining counts, ordered outcomes and expandable notes. The agent
+records evidence; manual Editor checks wait for an actual engineer result. The browser displays
+progression read-only. Checklist history survives Gate 6; absent item data explicitly shows
+“Checklist not recorded.” Gate approval remains separate.
+
 ### Phase 7 — Verification
 
 One full `/audit` over every file the feature created or modified. Its report is the evidence
@@ -197,8 +210,13 @@ inline instead of through the Skill tool (a self-review), or a Gate 7 without th
 ### Phase 8 — Retrospective
 
 Run through `/end-session` (see [[07_SessionTracking#Retrospectives|Retrospectives]]). It reads the metrics of **every** session that worked on the
-feature and proposes changes to Systems docs, patterns, rules and processes. Nothing is written
-until the engineer approves the report, and each change is confirmed individually. A change to
+feature and proposes changes to Systems docs, patterns, rules and processes. The agent completes all seven investigation steps automatically, using parallel read-only
+subagents and cheaper available models for bounded extraction where appropriate. It writes
+`<FeatureName>_Retrospective.md` into the feature folder and registers a persistent
+**Phase 8: Retrospective Report** preview tab. Chat contains only per-step TL;DRs and the link.
+The full report includes evidence, findings, recommendations and limitations for every step.
+Session `retro.md` links to the feature report. Approval is required to apply proposed
+improvements and complete Gate 8; each approved change is confirmed individually. A change to
 a rule, process or Systems doc also updates its `Documentation/` page.
 
 ## Gate handoffs

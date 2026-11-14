@@ -49,6 +49,42 @@ class ProjectPreviewTests(unittest.TestCase):
         self.assertEqual(titles, ['Home', 'Plan', 'V0 Summary'] + list(project_server.TITLES[2:]))
         self.assertEqual(tabs[2]['file'], 'V0Summary.md')
 
+    def test_phase8_report_tab_survives_state_reload(self):
+        directory = self.root / 'Alpha'
+        (directory / 'Alpha_Retrospective.md').write_text('# Retrospective\n## Step 1 — Discovery Gaps')
+        state = project_server.feature_state.load_state(directory)
+        state['current_phase'] = '8_retrospective'
+        (directory / 'state.json').write_text(json.dumps(state))
+        project_server.feature_state.update_state(directory, 'phase-report',
+            {'phase': '8_retrospective', 'path': 'Alpha_Retrospective.md'}, state['revision'])
+        for _ in range(2):
+            tabs = project_server.project_tabs(self.root, directory)
+            report = next(tab for tab in tabs if tab['title'] == 'Phase 8: Retrospective Report')
+            self.assertEqual(report['file'], 'Alpha_Retrospective.md')
+            self.assertIn('Step 1', report['path'].read_text())
+
+    def test_integrationChecklist_sources_are_feature_scoped_and_refresh(self):
+        directory = self.root / 'Alpha'
+        state = project_server.feature_state.load_state(directory)
+        state['current_phase'] = '6_integration'
+        project_server.feature_state.save_state(directory, state)
+        items = [{'id': 'a', 'title': 'Factory', 'status': 'in_progress', 'notes': 'Source inspected'}]
+        project_server.feature_state.update_state(directory, 'integration-checklist', {'items': items}, state['revision'])
+        def source(name):
+            tabs = project_server.project_tabs(self.root, self.root / name)
+            sources = project_server.view._collect_sources(tabs)
+            return json.loads(sources['d1'])
+        alpha = source('Alpha')
+        checklist = next(phase for phase in alpha['phases'] if phase['key'] == '6_integration')['integration_checklist']
+        self.assertEqual(checklist['current_id'], 'a')
+        beta = source('Beta')
+        self.assertFalse(next(phase for phase in beta['phases'] if phase['key'] == '6_integration')['integration_checklist']['recorded'])
+        items[0]['status'] = 'done'
+        state = project_server.feature_state.load_state(directory)
+        project_server.feature_state.update_state(directory, 'integration-checklist', {'items': items}, state['revision'])
+        refreshed = next(phase for phase in source('Alpha')['phases'] if phase['key'] == '6_integration')['integration_checklist']
+        self.assertEqual((refreshed['completed'], refreshed['remaining'], refreshed['current_id']), (1, 0, None))
+
     def test_rejectsFeatureAndArtifactTraversal(self):
         with self.assertRaises(ValueError):
             project_server.feature_path(self.root, '../Elsewhere')

@@ -32,7 +32,7 @@ def empty_state(feature):
             "artifacts": [], "sessions": [], "sources_of_truth": [], "pull_requests": {},
             "batches": {}, "step_status": {}, "tdd_sections": {}, "checkpoint": {},
             "gates": [], "closed": [], "tasks": [], "artifact_roles": {}, "phase_reports": {},
-            "milestone_reports": [], "legacy_notes": []}
+            "milestone_reports": [], "integration_checklist": [], "legacy_notes": []}
 
 
 def validate_state(data):
@@ -80,6 +80,29 @@ def validate_state(data):
             raise StateError("milestone_reports require a nonempty label and a path")
     if len({report["label"] for report in data["milestone_reports"]}) != len(data["milestone_reports"]):
         raise StateError("duplicate milestone_reports labels")
+    checklist = data.get("integration_checklist", [])
+    if not isinstance(checklist, list):
+        raise StateError("integration_checklist must be a list")
+    seen = set()
+    active_count = 0
+    for item in checklist:
+        if not isinstance(item, dict):
+            raise StateError("integration checklist items must be objects")
+        for key in ("id", "title"):
+            if not isinstance(item.get(key), str) or not item[key].strip():
+                raise StateError("integration checklist requires nonempty id and title")
+        if item["id"] in seen:
+            raise StateError("duplicate integration checklist id")
+        seen.add(item["id"])
+        if item.get("status") not in {"todo", "in_progress", "done", "not_applicable"}:
+            raise StateError("invalid integration checklist status")
+        if not isinstance(item.get("notes"), str):
+            raise StateError("integration checklist notes must be a string")
+        if item["status"] == "not_applicable" and not item["notes"].strip():
+            raise StateError("not_applicable integration items require notes")
+        active_count += item["status"] == "in_progress"
+    if active_count > 1:
+        raise StateError("at most one integration checklist item may be in_progress")
     for path in (list(data["artifact_roles"].values()) + list(data["phase_reports"].values())
                  + [report["path"] for report in data["milestone_reports"]] + data["artifacts"]):
         if not isinstance(path, str) or Path(path).is_absolute() or ".." in Path(path).parts:
@@ -92,6 +115,7 @@ def load_state(feature_dir):
     raw = json.loads((directory / "state.json").read_text())
     if isinstance(raw, dict):
         raw.setdefault("milestone_reports", [])
+        raw.setdefault("integration_checklist", [])
     state = validate_state(raw)
     if state["feature"] != directory.name:
         raise StateError("feature identity must match its directory name")
@@ -169,7 +193,13 @@ def render_progress(data):
     text = ("<!-- AUTO-GENERATED: do not edit. Regenerate: feature_state.py render <feature-dir>. "
             "Manual edits are overwritten; state.json is authoritative. -->\n"
             f"# {data['feature']} — Progress\n\n```yaml\n{header}\n```\n\n## Checkpoint\n\n"
-            "```json\n" + json.dumps({"checkpoint": data["checkpoint"]}, indent=2, ensure_ascii=False) + "\n```\n\n## Gates Passed\n")
+            "```json\n" + json.dumps({"checkpoint": data["checkpoint"]}, indent=2, ensure_ascii=False) + "\n```\n")
+    text += "\n## Integration checklist\n\n"
+    if data.get("integration_checklist"):
+        text += "```json\n" + json.dumps({"integration_checklist": data["integration_checklist"]}, indent=2, ensure_ascii=False) + "\n```\n"
+    else:
+        text += "Checklist not recorded.\n"
+    text += "\n## Gates Passed\n"
     for gate in data["gates"]:
         text += "\n```json\n" + json.dumps({"phase_handoff": gate}, indent=2, ensure_ascii=False) + "\n```\n"
     if data["closed"]:
@@ -220,6 +250,12 @@ def update_state(feature_dir, operation, payload, expected_revision):
             if state["status"] in CLOSED or set(payload) - allowed or payload.get("status", state["status"]) not in {"in_progress", "at_gate"}:
                 raise StateError("unsupported checkpoint fields/status")
             state.update(payload)
+        elif operation == "integration-checklist":
+            if state["current_phase"] != "6_integration" or state["status"] not in {"in_progress", "at_gate"}:
+                raise StateError("integration-checklist requires active Phase 6")
+            if set(payload) != {"items"}:
+                raise StateError("integration-checklist requires only items")
+            state["integration_checklist"] = copy.deepcopy(payload["items"])
         elif operation == "gate":
             if not payload.get("gate_confirmed_by") or not payload.get("phase_completed"):
                 raise StateError("gate requires phase_completed and engineer confirmation")
@@ -234,7 +270,7 @@ def update_state(feature_dir, operation, payload, expected_revision):
                 raise StateError(f"gate next_phase must be {expected_next!r}")
             if any(re.match(r"^Phase " + str(phase_number) + r"\b", str(gate.get("phase_completed", ""))) for gate in state["gates"]):
                 raise StateError("gate for this phase is already recorded")
-            PHASES_REQUIRING_REPORT = {"2_discovery", "3_design", "4_implementation", "5_unit_tests", "6_integration", "7_verification"}
+            PHASES_REQUIRING_REPORT = {"2_discovery", "3_design", "4_implementation", "5_unit_tests", "6_integration", "7_verification", "8_retrospective"}
             if state["current_phase"] in PHASES_REQUIRING_REPORT and not state.get("phase_reports", {}).get(state["current_phase"]):
                 raise StateError("phase report required before gate — run 'phase-report' first")
             gate = {key: value for key, value in payload.items() if key != "next_phase"}
@@ -256,7 +292,7 @@ def update_state(feature_dir, operation, payload, expected_revision):
         elif operation == "phase-report":
             phase = payload.get("phase")
             path = payload.get("path")
-            PHASES_REQUIRING_REPORT = {"2_discovery", "3_design", "4_implementation", "5_unit_tests", "6_integration", "7_verification"}
+            PHASES_REQUIRING_REPORT = {"2_discovery", "3_design", "4_implementation", "5_unit_tests", "6_integration", "7_verification", "8_retrospective"}
             if phase not in PHASES_REQUIRING_REPORT:
                 raise StateError(f"phase-report requires one of {PHASES_REQUIRING_REPORT}")
             if phase != state["current_phase"]:
@@ -313,10 +349,11 @@ def main():
     listing.add_argument("--root", type=Path, required=True)
     listing.add_argument("--include-closed", action="store_true")
     command_help = {
+        "integration-checklist": 'Replace active Phase 6 checklist. Payload: {"items": [{"id": "...", "title": "...", "status": "todo|in_progress|done|not_applicable", "notes": "..."}]}',
         "task": "Add or update one task by id (merge, no delete). Payload: "
                 '{"id": "T<n>", "title": "...", "status": "todo|partial|done"}.',
     }
-    for command in ("get", "create", "checkpoint", "gate", "close", "reopen", "pr", "batch", "task", "artifact", "phase-report", "milestone-report", "render", "migrate"):
+    for command in ("get", "create", "checkpoint", "gate", "close", "reopen", "pr", "batch", "task", "artifact", "phase-report", "milestone-report", "integration-checklist", "render", "migrate"):
         item = sub.add_parser(command, help=command_help.get(command), description=command_help.get(command))
         item.add_argument("directory", type=Path, nargs="?" if command == "migrate" else None)
         if command == "get":

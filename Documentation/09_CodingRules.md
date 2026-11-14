@@ -46,7 +46,7 @@ Loaded on demand by the routing table (see [[02_WorkModes#Loading rules on deman
 | **Architectural Principles** | SOLID applied to our code, creating interfaces only as needed, composition over inheritance, Unity assembly structure, hard rules. |
 | **Multi-Step Operations Rules** | Favour an async loop over the callback-pump pattern; bridging callback-based APIs; state tracking; guarding against mutation during execution. |
 | **Resource Management Rules** | The symmetry principle; `IDisposable` scoped state instead of boolean flags; event subscriptions; Addressables. |
-| **Testing Rules** | Container setup, test doubles, assertions, state reset, async tests, naming, **idle-behavior tests for poll handlers and event listeners** (verify state unchanged across multiple ticks when data has not changed). |
+| **Testing Rules** | Container setup, test doubles, assertions, state reset, async tests (failure-safe release/cancel/observe of controlled operations before resource disposal; bounded, host-nonblocking cleanup; successful acquisition/disposal assertions on the success path; preserve earlier failures and report cleanup failures when no earlier failure exists), naming, **idle-behavior tests for poll handlers and event listeners** (verify state unchanged across multiple ticks when data has not changed). |
 
 ## Project rules
 

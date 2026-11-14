@@ -72,6 +72,8 @@ teardown_requirements:
 async_rules:
   - Prefer Task-returning test methods over async void.
   - Never use DateTime.Now — inject and mock ITimeService or equivalent.
+  - "Controlled asynchronous operations must be released, cancelled when needed, and observed in failure-safe finally/teardown even when an assertion exits early. Observe completion before disposing resources still used by that operation; keep cleanup bounded and nonblocking for the host thread."
+  - "Assert successful acquisition and disposal on the successful test path. Cleanup must preserve an earlier assertion or operation failure rather than replacing it with a cleanup assertion; still report cleanup failures when no earlier failure exists."
 ```
 
 ---

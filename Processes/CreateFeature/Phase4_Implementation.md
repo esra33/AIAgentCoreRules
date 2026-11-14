@@ -8,13 +8,17 @@ Progress Markdown is generated; references to writing its fields mean tool opera
 
 Goal: Write code file-by-file following the approved design. Present each file to the engineer before moving to the next.
 
-Implement in this order: **interfaces → concrete classes → integration glue.**
+Implement in dependency slices following the approved task and batch plan. Within each slice, establish the required interfaces and contracts before their concrete services, then integration glue. Interfaces for unrelated later slices need not be written first; preserve approved batch review and merge order.
 
 Before the first file: re-read `../../Rules/CodingStandards.md` and `../../Rules/ArchitecturalPrinciples.md`
 (and ResourceManagementRules / MultyStepOperationsRules if Phase 2 loaded them). Phase 2 may be
 several sessions or a context summary ago.
 
 ---
+
+## Before Starting Each Batch
+
+Read the authoritative checkpoint, task and batch state; reconcile any disagreement with the approved plan before advancing. Resume the recorded next work rather than skipping an unfinished task or V-phase. Reuse existing permanent tests and recorded verification evidence (including dependency ledgers) before writing a custom probe. Add a probe only for a remaining evidence gap, and record its purpose and result in the checkpoint. This adds no engineer approval gate.
 
 ## Per-File Checklist
 
