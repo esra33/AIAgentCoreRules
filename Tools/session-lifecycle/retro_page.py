@@ -300,7 +300,8 @@ def standardized_chart(breakdown):
     total, categories = breakdown["total"], breakdown["categories"]
     names = list(categories)
     colors = {name: STANDARDIZED_COLORS[i] for i, name in enumerate(n for n in names if n in STANDARDIZED_NAMES)}
-    colors.update({"Ad-hoc tool calls": "var(--neutral)", "Conversation & base context": "var(--neutral-2)"})
+    colors.update({"Ad-hoc tool calls": "var(--neutral)", "Session startup overhead": "var(--neutral-2)",
+                   "Conversation growth": "var(--neutral-3)"})
     segments, legend = [], []
     for name in names:
         share = 100.0 * categories[name] / total if total else 0
@@ -479,14 +480,14 @@ TEMPLATE = """<!doctype html>
 <style>
 :root{--bg:#f7f7f5;--panel:#fff;--text:#1d1d1f;--muted:#6b6b70;--line:#e3e3e0;--code:#f0f0ec;
   --ok:#1f7a4d;--ok-bg:#e3f4ea;--skip:#77767b;--skip-bg:#ececea;--open:#a35a00;--open-bg:#fdf0dc;--accent:#2f5bd3;
-  --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--neutral:#a3a29b;--neutral-2:#d6d5ce}
+  --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--neutral:#a3a29b;--neutral-2:#d6d5ce;--neutral-3:#bcbbb3}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#151517;--panel:#1e1e21;--text:#ececef;
   --muted:#9a9aa1;--line:#2e2e33;--code:#2a2a2f;--ok:#5fd394;--ok-bg:#183424;--skip:#a3a3aa;--skip-bg:#2a2a2e;
   --open:#f0b25a;--open-bg:#3a2a12;--accent:#8aa8ff;
-  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--neutral:#6e6d68;--neutral-2:#3e3e3b}}
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--neutral:#6e6d68;--neutral-2:#3e3e3b;--neutral-3:#56554f}}
 :root[data-theme="dark"]{--bg:#151517;--panel:#1e1e21;--text:#ececef;--muted:#9a9aa1;--line:#2e2e33;--code:#2a2a2f;
   --ok:#5fd394;--ok-bg:#183424;--skip:#a3a3aa;--skip-bg:#2a2a2e;--open:#f0b25a;--open-bg:#3a2a12;--accent:#8aa8ff;
-  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--neutral:#6e6d68;--neutral-2:#3e3e3b}
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--neutral:#6e6d68;--neutral-2:#3e3e3b;--neutral-3:#56554f}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 main{max-width:980px;margin:0 auto;padding:24px 16px 64px}

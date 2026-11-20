@@ -39,6 +39,7 @@ steps:
   - "Ask the engineer: land <branch> into <main checkout branch> now? Wait for the answer."
   - "no → go to Step 1. Leave the worktree as it is."
   - "yes → if the session is still inside the worktree, commit or show its uncommitted work first, then leave it (ExitWorktree, action keep). Run /land-worktree <name> and follow it to the end, including the engineer's keep/reject test. Then go to Step 1."
+  - "WARNING: ExitWorktree's own description says action keep leaves the worktree and branch intact on disk, but a real run (2026-11-17, AIAgentCoreRules, branch worktree-tag-candidates) showed it can instead fast-forward-merge the branch straight into the checkout's current branch and delete the worktree/branch when that branch is a fast-forward of it — skipping /land-worktree's keep/reject test entirely, and the checkout's remote ended up synced to the same commit with no separate push run. Check git worktree list / git branch -a / git log right after the ExitWorktree call, before assuming the branch is still there to land; if it is already gone and merged, say so and skip the /land-worktree step rather than running it against a worktree that no longer exists."
   - "Several active worktrees → ask once per worktree; land them one at a time."
 ```
 

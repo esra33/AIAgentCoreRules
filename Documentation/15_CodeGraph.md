@@ -2,8 +2,8 @@
 
 A small local server that shows the host project's **codeindex** database as a browsable graph,
 and answers the same questions as JSON for the agent. It exists to cut down on greps: one request
-returns a type's bases, derived types, members and `file:line`. It only reads the database; the
-host's `codeindex.py` builds it.
+returns a type's bases, derived types, uses/used-by, members and `file:line`. It only reads the
+database; the host's `codeindex.py` builds it.
 
 Code: `Tools/code-graph/` (details and the full API in its `README.md`).
 
@@ -30,10 +30,12 @@ description: it runs from the project root, split like a shell command but witho
 - **Tree**: assembly → namespace → type.
 - **Graph**: the selected type's inheritance — bases above, derived types below. Click a node for
   its details; double-click to expand around it. Depth and direction are set in the corner.
-  A dashed amber edge means the base's name is declared in more than one namespace; a dashed
-  node is a type outside the indexed sources (Unity, .NET).
+  Two checkboxes, off by default, add declaration-level type dependencies: **uses** (a dashed
+  blue arrow — a parameter or return type) and **aggregation** (a violet diamond — a field or
+  property type). A dashed amber edge means the name is declared in more than one namespace; a
+  dashed node is a type outside the indexed sources (Unity, .NET).
 - **Details**: kind, namespace, assembly, `file:line` (click to copy), bases, derived types and
-  a filterable member list.
+  a filterable member list. `uses`/`used_by` are in the JSON (`/api/type`) but not yet shown here.
 - **Force refresh index**: shown unless the server was started with `--refresh-cmd ""`, even when
   the database is missing. It runs the refresh command (by default a forced codeindex build), shows progress, and reloads the page's data when
   it finishes. The page keeps working on the old index until the rebuild commits.
@@ -41,8 +43,9 @@ description: it runs from the project root, split like a shell command but witho
 ## For the agent
 
 ```bash
-curl -s "$URL/api/type?name=IEventManager&members=0"   # bases, derived, location
+curl -s "$URL/api/type?name=IEventManager&members=0"   # bases, derived, uses, used_by, location
 curl -s "$URL/api/graph?name=Screen&direction=down&depth=1"
+curl -s "$URL/api/graph?name=GemEventManager&direction=up&depth=1&edge_kinds=uses,aggregation"
 curl -s "$URL/api/search?q=GemEvent"
 ```
 

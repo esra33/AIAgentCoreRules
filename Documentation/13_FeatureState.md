@@ -21,6 +21,12 @@ All mutating commands require the revision returned by `get`. A stale revision f
 
 The state preserves the established feature fields: `feature`, `current_phase`, `status`, `updated_at`, `artifacts`, `sessions`, `sources_of_truth`, `pull_requests`, `batches`, `step_status`, `tdd_sections`, and `checkpoint`. It adds `schema_version`, `revision`, `gates` (ordered handoff objects), `closed` (ordered lifecycle history), `tasks`, `artifact_roles` (feature-relative paths), and `legacy_notes`.
 
+`artifact_roles`' known keys: `tdd`, `gdd`, `task_list`, `framework_class_diagram`,
+`concrete_class_diagram`, `flow_diagram`, `life_cycle_diagram`, and `performance` (the last is
+resolved from the reports root, not a stored path). The doc-review preview renders one tab per
+key it finds set — see [[12_DocReview]]'s fixed-tabs list and [[ChangeClassification]]'s
+"Diagram types and naming" for what the four diagram roles each show.
+
 Task objects contain an `id` such as `T1`, a `status` of `todo`, `partial`, or `done`, and optional title/assignee/description fields. Artifact paths cannot be absolute or escape the feature folder. Complete features cannot be reopened or mutated.
 
 Commands accept a JSON payload file:

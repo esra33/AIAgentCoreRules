@@ -60,6 +60,8 @@ def validate_state(data):
     for task in data["tasks"]:
         if not isinstance(task, dict) or not re.fullmatch(r"T\d+", task.get("id", "")) or task.get("status") not in {"todo", "partial", "done"}:
             raise StateError("tasks require T-ids and todo/partial/done statuses")
+        if "table_approved" in task and not isinstance(task["table_approved"], bool):
+            raise StateError("task table_approved must be a boolean")
     if len({item["id"] for item in data["tasks"]}) != len(data["tasks"]):
         raise StateError("duplicate task IDs")
     for key, values in data["pull_requests"].items():
@@ -351,7 +353,8 @@ def main():
     command_help = {
         "integration-checklist": 'Replace active Phase 6 checklist. Payload: {"items": [{"id": "...", "title": "...", "status": "todo|in_progress|done|not_applicable", "notes": "..."}]}',
         "task": "Add or update one task by id (merge, no delete). Payload: "
-                '{"id": "T<n>", "title": "...", "status": "todo|partial|done"}.',
+                '{"id": "T<n>", "title": "...", "status": "todo|partial|done"}. '
+                'Optional "table_approved": true/false marks the Phase 4 Task Table Proposal reviewed.',
     }
     for command in ("get", "create", "checkpoint", "gate", "close", "reopen", "pr", "batch", "task", "artifact", "phase-report", "milestone-report", "integration-checklist", "render", "migrate"):
         item = sub.add_parser(command, help=command_help.get(command), description=command_help.get(command))

@@ -73,6 +73,10 @@ fixtures of them, Phase 8 has `phase_N_<name>` keys, and in-flight progress file
   A class is described by its actionable methods (what it does); the wiring mechanism (e.g. which
   type implements a listener interface) is left to a later phase unless the engineer has already
   confirmed it.
+  Each Files & Types Changed item (and each File Plan row) shows one visible TLDR under its
+  heading — aim for ~5 lines or fewer, longer only if the item needs it; Nature, Reason and
+  Implementation move inside a collapsible "More detail" block (see [[ChangeClassification]]) so
+  the heading list alone stays scannable.
 - **1c consistency and gap review** — findings are a numbered list, each tagged ✅ (passes),
   ⚠️ (passes but needs attention) or ❌ (fails). For every ⚠️ or ❌ the engineer chooses to
   **acknowledge and continue** or **rework now**, and the outcome is recorded beside the finding.
@@ -83,7 +87,11 @@ fixtures of them, Phase 8 has `phase_N_<name>` keys, and in-flight progress file
   read it back.
 - **1d metrics** — a one-time reminder of `/iteration` and `/end-session`. The
   lane and title are already set by `/feature` or `/resume-work`, so this step no longer sets them.
-- **1e document generation**.
+- **1e document generation** — `[FeatureName]_UseCases.md`'s ids follow
+  `<FeaturePrefix><CategoryLetter><n>` (e.g. `SlimA1`, `SlimF2` for a feature prefixed `Slim`),
+  one letter per scenario category, sequential within it. The GDD and TDD key on the same ids,
+  so a File Plan or Development Plan task row can cross-reference the use cases it satisfies in
+  its optional **Use Cases** column instead of restating them in prose.
 - **1f external publish (optional)** — the agent asks whether to publish the TDD to Confluence
   and its diagrams to Miro now. If yes, it loads [[ExternalDocPass|External Doc Pass]] and the
   host's doc-conventions file, publishes the TDD, pushes each diagram to its Miro board in the

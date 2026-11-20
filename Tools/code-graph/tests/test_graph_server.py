@@ -90,6 +90,11 @@ class GraphServerTest(ServerCase):
         self.assertEqual(by_id['types'][0]['namespace'], 'B')
         _, graph = self.get_json('/api/graph?name=IEventManager&direction=down&depth=1')
         self.assertEqual({node['name'] for node in graph['nodes']}, {'IEventManager', 'EventManagerBase'})
+        self.assertTrue(all(edge['kind'] == 'inherits' for edge in graph['edges']))
+        _, uses_graph = self.get_json(
+            '/api/graph?name=GemEventManager&direction=up&depth=1&edge_kinds=uses,aggregation')
+        self.assertEqual({node['name'] for node in uses_graph['nodes']},
+                         {'GemEventManager', 'EventLogger', 'EventOptions'})
         _, tree = self.get_json('/api/tree')
         self.assertEqual(tree['assemblies'][0]['name'], 'Game')
         _, namespaces = self.get_json('/api/tree?assembly=Game.Editor')
@@ -99,6 +104,7 @@ class GraphServerTest(ServerCase):
         self.assertEqual(self.get_json('/api/type')[0], 400)
         self.assertEqual(self.get_json('/api/graph?name=X&depth=deep')[0], 400)
         self.assertEqual(self.get_json('/api/graph?name=X&direction=sideways')[0], 400)
+        self.assertEqual(self.get_json('/api/graph?name=X&edge_kinds=sideways')[0], 400)
         self.assertEqual(self.get_json('/api/nope')[0], 404)
         self.assertEqual(self.post('/api/nope')[0], 404)
 

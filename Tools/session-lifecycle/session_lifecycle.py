@@ -22,8 +22,12 @@ Subcommands:
                  and suggests codeindex/usages for a grep over C# for a type or member name.
     hook-edit    PreToolUse hook on Edit|Write. First .cs edit of a session: typecheck baseline on the
                  untouched tree, result to the agent. Every .cs edit: last_cs_edit in typecheck.json.
+    hook-agent   PreToolUse hook on Agent. Denies the spawn when the lane's agent_model rule
+                 (LANE_AGENT_MODEL) is set and the call's model does not match it.
     hook-lint    PostToolUse hook on Edit|Write. cslint on the edited .cs file's changed lines.
     hook-stop-check  Stop hook (sync). Blocks once when a .cs file changed after the last typecheck run.
+    statusline   statusLine command. Saves the plan rate_limits Claude Code sends to <sessions root>/plan_usage.json
+                 (Performance tab, current usage) and prints e.g. "Opus · 5h 23% · 7d 41%".
     set          Record name, lane, work type and title.
     note         Log an inaccuracy or iteration.
     compile      Refresh token report, router trace and metrics.md.
@@ -73,6 +77,9 @@ LANES = ["small_task", "large_task", "bug_fix", "investigation", "feature", "oth
 WORK_TYPES = ["bug_fix", "small_feature", "large_feature", "feature", "question", "other"]
 LANE_WORK_TYPE = {"small_task": "small_feature", "large_task": "large_feature", "bug_fix": "bug_fix",
                   "investigation": "question", "feature": "feature", "other": "other"}
+# agent_model (SmallTask.md, BugFix.md, LargeTask.md): the model every Agent tool call spawned in
+# this lane should pass, unless the step it comes from pins its own. Lanes not listed have no rule.
+LANE_AGENT_MODEL = {"small_task": "haiku", "bug_fix": "haiku", "large_task": "sonnet"}
 RUNNABLE_TOOLS = ["typecheck.py", "codeindex.py", "usages.py", "unitysource.py", "cslint.py"]
 # CreateFeature working folders, relative to the project root (Processes/CreateFeature/index.md
 # working_folder). Override with SESSION_FEATURES_ROOT or --features-root.
@@ -109,6 +116,17 @@ GREP_PROGRAMS = ("grep", "egrep", "rg")
 GREP_VALUE_OPTIONS = ("-A", "-B", "-C", "-m", "-f", "-g", "--glob", "-t", "--type", "--include", "--exclude")
 CS_TARGET = re.compile(r"\.cs\b|(?:^|/)Assets(?:/|$)|^cs$|--type=cs|-tcs")
 TYPE_DECL_PATTERN = re.compile(r"\b(class|interface|enum|struct|record)\s+([A-Z]\w*)")
+# hook-bash (token-usage savings pass, 2026-11-17): a shell excerpt of a feature doc (TDD, progress
+# file, checkpoint JSON) bypasses Read's limit/offset and the partial-file-read saving it earns.
+# Same shape as SHELL_RULE_READ above, widened to Features/ markdown and JSON, plus grep -A/-B/-C.
+FEATURE_DOC_READ = re.compile(
+    r"(?:^|[;&|]|\$\()\s*(?:cat|sed|head|tail|grep|egrep|rg)\b[^|;&\n]*?(\S*\bFeatures/\S*\.(?:md|json))",
+    re.MULTILINE)
+# hook-read (token-usage savings pass, 2026-11-17): below this, a whole-file Read costs less than
+# the round trip to codeindex.py/code-graph.sh would, so it is not worth nagging about. A judgment
+# call, not measured data — revisit once hooks.log (cmd_hook_read now logs each firing) shows real
+# firing frequency across a few sessions (retro 90556129, proposal #3).
+CS_SHAPE_READ_MIN_BYTES = 4000
 # `file --to` targets (MR-20261016-06): folders next to the sessions root that background jobs
 # cannot Write into directly.
 FILE_TARGETS = ["MetaReviews"]
@@ -1084,6 +1102,12 @@ def shell_rule_reads(command):
     return SHELL_RULE_READ.findall(_strip_prose(command))
 
 
+def feature_doc_reads(command):
+    """Feature-doc paths (TDD, progress, checkpoint JSON) a command cat/sed/head/tail/greps,
+    ignoring heredoc bodies and quoted text. Same shape as shell_rule_reads, for Features/ docs."""
+    return FEATURE_DOC_READ.findall(_strip_prose(command))
+
+
 def runnable_tool_calls(command):
     """{tool: count} of the Runnable tools a command really runs. A `python3 codeindex.py ...`
     inside a heredoc body or quoted text (an edit script, a doc string) is not a run."""
@@ -1201,11 +1225,54 @@ def cmd_hook_bash(args):
             notes.append("This grep looks up a C# name; the index answers it with file:start-end and full "
                          "signatures: %s. Keep grep for free text." %
                          "; ".join(" or ".join(prefix + c for c in s) for s in lookups))
+        doc_paths = feature_doc_reads(command)
+        if doc_paths:
+            notes.append("Use the Read tool with limit/offset to excerpt a feature doc (%s) instead of "
+                         "cat/sed/grep -A/-B — it earns the partial-file-read saving and keeps the excerpt "
+                         "exact; shell reads are only inferred." % ", ".join(doc_paths))
         if notes:
             print(json.dumps({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse", "additionalContext": "\n".join(notes)}}))
+            # Proposed change #1 (retro 90556129, end-session follow-up): hooks.log was error-only for
+            # this hook too, so none of its 3 detectors could be tuned from real firing frequency.
+            fired = ([name for name, hits in
+                      (("rule-read", paths), ("type-grep", lookups), ("feature-doc", doc_paths)) if hits])
+            hook_log(args, "bash", hook, "fired: %s" % ", ".join(fired))
     except Exception as error:   # a hook must never block a command
         hook_log(args, "bash", hook, "ERROR %s" % error)
+    return 0
+
+
+def cmd_hook_read(args):
+    """PreToolUse hook on Read: when a sizeable .cs file is read whole (no limit/offset), suggest
+    codeindex.py/code-graph.sh for its shape first. Warns only; never blocks the read."""
+    hook = {}
+    try:
+        hook = read_hook_input()
+        tool_input = hook.get("tool_input") or {}
+        path = tool_input.get("file_path") or ""
+        if not path.endswith(".cs") or "limit" in tool_input or "offset" in tool_input:
+            return 0
+        hook_project_dir(hook)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return 0
+        if size < CS_SHAPE_READ_MIN_BYTES:
+            return 0
+        name = os.path.splitext(os.path.basename(path))[0]
+        prefix = unity_tools_prefix()
+        note = ("%d bytes read whole for %s.cs. If this is only for its shape (members, base type), "
+                "%scodeindex.py members %s or %scodeindex.py where %s answers without the bodies — "
+                "code-graph.sh's /api/type in one call if you need more than one lookup on it. Read "
+                "the file itself once you need the bodies to copy or edit." % (size, name, prefix, name, prefix, name))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}}))
+        # Proposed change #3 (retro 90556129): below-threshold reads were silent, so hooks.log never
+        # showed a real firing frequency to revisit CS_SHAPE_READ_MIN_BYTES against. Log the firing
+        # case only — mirrors cmd_hook_prompt/cmd_hook_edit, which log the active case, not every check.
+        hook_log(args, "read", hook, "nudged %d bytes %s.cs" % (size, name))
+    except Exception as error:   # a hook must never block a read
+        hook_log(args, "read", hook, "ERROR %s" % error)
     return 0
 
 
@@ -1372,6 +1439,40 @@ def cmd_hook_edit(args):
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}}))
     except Exception as error:   # a hook must never block an edit
         hook_log(args, "edit", hook, "ERROR %s" % error)
+    return 0
+
+
+def cmd_hook_agent(args):
+    """PreToolUse hook on Agent: when the session's lane has an agent_model rule (LANE_AGENT_MODEL)
+    and the spawned call's model does not match it, deny the spawn so the agent must retry with the
+    right model. subagent_type "fork" is exempt (its model override is always ignored)."""
+    hook = {}
+    try:
+        hook = read_hook_input()
+        tool_input = hook.get("tool_input") or {}
+        if tool_input.get("subagent_type") == "fork":
+            return 0
+        hook_project_dir(hook)
+        folder = find_folder(reports_root(args), hook.get("session_id"))
+        if not folder:
+            return 0
+        lane = load_state(folder).get("lane")
+        expected = LANE_AGENT_MODEL.get(lane)
+        if not expected:
+            return 0
+        model = tool_input.get("model")
+        if model == expected:
+            return 0
+        reason = ("This session's lane (%s) requires model: \"%s\" on every spawned Agent call (Explore "
+                  "agents, fan-out) unless the step it comes from pins its own model — see this lane's "
+                  "process file's agent_model rule. This call had model=%s. Retry with model: \"%s\"." %
+                  (lane, expected, repr(model), expected))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                  "permissionDecision": "deny",
+                                                  "permissionDecisionReason": reason}}))
+        hook_log(args, "agent", hook, "denied %s -> %s (got %s)" % (lane, expected, model))
+    except Exception as error:   # a hook must never trap a spawn
+        hook_log(args, "agent", hook, "ERROR %s" % error)
     return 0
 
 
@@ -1615,6 +1716,43 @@ def cmd_path(args):
     print(folder)
 
 
+def cmd_statusline(args):
+    """statusLine command. Claude Code pipes rate_limits (Pro/Max plans, after the first API response)
+    on every assistant message; keep the latest in <sessions root>/plan_usage.json for the Performance
+    tab and print a short status line. A payload without rate_limits keeps the previous capture."""
+    payload = read_hook_input()
+    limits = payload.get("rate_limits") if isinstance(payload, dict) else None
+    if isinstance(limits, dict) and limits:
+        try:
+            save_plan_usage(reports_root(args), {"captured_at": time.time(),
+                                                 "session_id": payload.get("session_id") or "",
+                                                 "rate_limits": limits})
+        except OSError:
+            pass   # a status line must never fail; the tab shows the last capture
+    print(status_text(payload if isinstance(payload, dict) else {}))
+    return 0
+
+
+def save_plan_usage(root, data):
+    os.makedirs(root, exist_ok=True)
+    path = os.path.join(root, token_breakdown.PLAN_USAGE_FILE)
+    with open(path + ".tmp", "w") as handle:
+        json.dump(data, handle, indent=2)
+    os.replace(path + ".tmp", path)
+
+
+def status_text(payload):
+    """'Opus · 5h 23% · 7d 41%': model, then each rate-limit window still in its period."""
+    model = payload.get("model") or {}
+    parts = [model.get("display_name")] if isinstance(model, dict) and model.get("display_name") else []
+    limits = payload.get("rate_limits") or {}
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d"), ("spend_limit", "spend")):
+        window = limits.get(key) if isinstance(limits, dict) else None
+        if isinstance(window, dict) and window.get("used_percentage") is not None:
+            parts.append("%s %d%%" % (label, round(window["used_percentage"])))
+    return " · ".join(parts)
+
+
 def cmd_file(args):
     """Copy outputs written elsewhere (a background job's tmp dir) into a reports folder that is a
     sibling of the sessions root, e.g. GitIgnoreReports/MetaReviews."""
@@ -1636,9 +1774,12 @@ def main():
     sub.add_parser("hook-stop").set_defaults(func=cmd_hook_stop)
     sub.add_parser("hook-prompt").set_defaults(func=cmd_hook_prompt)
     sub.add_parser("hook-bash").set_defaults(func=cmd_hook_bash)
+    sub.add_parser("hook-read").set_defaults(func=cmd_hook_read)
     sub.add_parser("hook-edit").set_defaults(func=cmd_hook_edit)
+    sub.add_parser("hook-agent").set_defaults(func=cmd_hook_agent)
     sub.add_parser("hook-lint").set_defaults(func=cmd_hook_lint)
     sub.add_parser("hook-stop-check").set_defaults(func=cmd_hook_stop_check)
+    sub.add_parser("statusline", help="statusLine command: saves rate_limits to plan_usage.json, prints a short line").set_defaults(func=cmd_statusline)
     features = sub.add_parser("features", help="list CreateFeature features that are not complete or closed (/active-features)")
     features.add_argument("--features-root", help="override $SESSION_FEATURES_ROOT, ai-agent-core.json paths.features, or legacy <project>/%s" % DEFAULT_FEATURES_DIR)
     features.add_argument("--json", action="store_true")

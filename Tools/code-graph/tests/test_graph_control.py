@@ -74,7 +74,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(first['url'].startswith('http://127.0.0.1:'))
         self.assertEqual(first['db'], str(self.project / 'Library' / 'codeindex.sqlite'))
         with urlopen(first['url'] + 'api/status', timeout=5) as response:
-            self.assertEqual(json.load(response)['counts']['type'], 8)
+            self.assertEqual(json.load(response)['counts']['type'], 10)
         self.assertEqual((self.project / '.code-graph' / '.gitignore').read_text(), '*\n')
 
         again = self.control('start')

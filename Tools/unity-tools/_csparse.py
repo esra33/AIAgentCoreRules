@@ -73,12 +73,14 @@ class TypeDecl:
 
 class MemberDecl:
     __slots__ = ("name", "kind", "signature", "line", "end_line", "access", "is_static",
-                 "is_abstract", "is_virtual", "is_override", "is_async", "attributes")
+                 "is_abstract", "is_virtual", "is_override", "is_async", "attributes",
+                 "type_refs")
 
     def __init__(self, **kw):
         for slot in self.__slots__:
             setattr(self, slot, kw.get(slot))
         self.attributes = self.attributes or []
+        self.type_refs = self.type_refs or []
 
 
 def blank_literals(text):
@@ -209,6 +211,90 @@ def _arity(generic):
         return 0
     inner = generic.strip()[1:-1]
     return len(_split_top_level(inner)) if inner.strip() else 0
+
+
+# -- type_ref extraction: field/property/param/return type dependencies --------------
+#
+# Declaration-level only, same boundary as the rest of this parser: no method bodies, no
+# name resolution. A field/property's declared type is an 'aggregation' edge; a method's
+# parameter or return type is a 'uses' edge (codeindex.py maps member_kind -> relation).
+
+PRIMITIVE_TYPES = {
+    "int", "uint", "short", "ushort", "long", "ulong", "byte", "sbyte",
+    "float", "double", "decimal", "bool", "char", "string", "object",
+    "void", "var", "dynamic",
+}
+
+# A fixed name list, not resolution: unwrapped to their type argument(s) (flagged
+# is_collection) instead of being stored as the container name itself.
+KNOWN_CONTAINERS = {
+    "List", "IList", "ICollection", "IEnumerable", "IReadOnlyList", "IReadOnlyCollection",
+    "Dictionary", "IDictionary", "IReadOnlyDictionary", "HashSet", "ISet", "Queue", "Stack",
+    "ReadOnlyCollection", "ObservableCollection", "LinkedList", "SortedList", "SortedSet",
+    "ConcurrentDictionary", "ConcurrentBag", "ConcurrentQueue", "ConcurrentStack",
+}
+
+# C# naming convention for generic type parameters (T, TResult, TKey, ...). A real class
+# coincidentally named this way is vanishingly rare; filtering is worth the tiny risk.
+_GENERIC_PLACEHOLDER_RE = re.compile(r"^T([A-Z][A-Za-z0-9]*)?$")
+_ARRAY_SUFFIX_RE = re.compile(r"^(?P<elem>.+)\[\s*,*\s*\]$")
+
+
+def _filtered_single(name, raw):
+    if not name or name in PRIMITIVE_TYPES or _GENERIC_PLACEHOLDER_RE.match(name):
+        return []
+    return [(name, raw.strip(), False)]
+
+
+def _unwrap_type(raw):
+    """Simple name(s) a declared type text actually references, for type_ref extraction.
+
+    A known collection/wrapper name (`List<T>`, `Dictionary<K,V>`, `T[]`, ...) unwraps to
+    its type argument(s), flagged `is_collection`; anything else keeps its own outer
+    simple name unchanged, exactly like `_simple_name` already does for base types.
+    Primitives and generic-parameter-style names (T, TResult, ...) are dropped. Returns a
+    list of (name, raw, is_collection) tuples — 0, 1 or several.
+    """
+    raw = raw.strip().rstrip("?")
+    if not raw:
+        return []
+    array_match = _ARRAY_SUFFIX_RE.match(raw)
+    if array_match:
+        return [(name, r, True) for name, r, _ in _unwrap_type(array_match.group("elem"))]
+    if raw.endswith(">") and "<" in raw:
+        open_idx = raw.index("<")
+        outer_simple = _simple_name(raw[:open_idx])
+        if outer_simple in KNOWN_CONTAINERS:
+            out = []
+            for arg in _split_top_level(raw[open_idx + 1:-1], sep=","):
+                out.extend((name, r, True) for name, r, _ in _unwrap_type(arg))
+            return out
+        return _filtered_single(outer_simple, raw)
+    return _filtered_single(_simple_name(raw), raw)
+
+
+def _find_close_paren(text, open_pos):
+    """Index of the `)` matching the `(` at open_pos, or -1 if unbalanced (e.g. a default
+    parameter value's own `=` already truncated `text` upstream — see _gather's stops)."""
+    depth = 0
+    for idx in range(open_pos, len(text)):
+        if text[idx] == "(":
+            depth += 1
+        elif text[idx] == ")":
+            depth -= 1
+            if depth == 0:
+                return idx
+    return -1
+
+
+_PARAM_PREFIX_RE = re.compile(r"^\s*(?:\[[^\]]*\]\s*)*(?:(?:ref|out|in|params|this)\s+)*")
+
+
+def _clean_param(raw_param):
+    """Strip a parameter chunk's leading attributes/modifiers and trailing default value,
+    leaving just `Type name` (or less, if malformed)."""
+    text = raw_param.split("=", 1)[0]
+    return _PARAM_PREFIX_RE.sub("", text, count=1).strip()
 
 
 def _gather(clean_lines, start, col, stops):
@@ -494,6 +580,7 @@ class SourceParser:
 
         paren = rest.find("(")
         name, kind = None, None
+        declared_type_text, return_type_text, params_text = None, None, None
 
         if paren > 0:
             head = rest[:paren].strip()
@@ -509,6 +596,11 @@ class SourceParser:
                         kind = "ctor"
                     else:
                         kind = "method"
+                    if len(tokens) > 1:
+                        return_type_text = " ".join(tokens[:-1])
+                    close = _find_close_paren(rest, paren)
+                    if close > paren:
+                        params_text = rest[paren + 1:close]
         if name is None:
             tokens = rest.split()
             if len(tokens) >= 2:
@@ -517,6 +609,7 @@ class SourceParser:
                     name = candidate
                     kind = "event" if is_event else ("property" if "{" in clean_lines[i][len(line.rstrip()):] or
                                                      i < len(clean_lines) else "field")
+                    declared_type_text = " ".join(tokens[:-1])
         if name is None:
             return None
 
@@ -526,6 +619,25 @@ class SourceParser:
             has_accessor = ("{" in clean_lines[i][clean_lines[i].find(name):] or
                             lookahead.startswith("{") or "=>" in clean_lines[i])
             kind = "event" if is_event else ("property" if has_accessor else "field")
+
+        type_refs = []
+        if kind in ("field", "property") and declared_type_text:
+            type_refs = [
+                {"name": n, "raw": r, "member_kind": kind, "is_collection": int(c), "position": None}
+                for n, r, c in _unwrap_type(declared_type_text)]
+        elif kind in ("method", "delegate", "ctor"):
+            if return_type_text:
+                type_refs.extend(
+                    {"name": n, "raw": r, "member_kind": "return", "is_collection": int(c), "position": None}
+                    for n, r, c in _unwrap_type(return_type_text))
+            if params_text is not None:
+                for position, raw_param in enumerate(_split_top_level(params_text, sep=",")):
+                    ptokens = _clean_param(raw_param).split()
+                    if len(ptokens) < 2:
+                        continue
+                    type_refs.extend(
+                        {"name": n, "raw": r, "member_kind": "param", "is_collection": int(c), "position": position}
+                        for n, r, c in _unwrap_type(" ".join(ptokens[:-1])))
 
         signature = " ".join(raw_lines[i].split())
         if end_line > i:
@@ -544,4 +656,5 @@ class SourceParser:
             is_virtual=int(bool(re.search(r"\bvirtual\b", mod_text))),
             is_override=int(bool(re.search(r"\boverride\b", mod_text))),
             is_async=int(bool(re.search(r"\basync\b", mod_text))),
+            type_refs=type_refs,
         ), end_line

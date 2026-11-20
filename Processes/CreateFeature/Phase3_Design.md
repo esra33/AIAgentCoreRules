@@ -66,7 +66,7 @@ The approved delta goes into the TDD, not a separate file.
 
 ```yaml
 write_back:
-  - "Add or update the Architecture section's 'File Plan' subsection (task | path | Change | responsibility), Change using [[ChangeClassification]]'s 🟢/🟡/🔴 tags."
+  - "Add or update the Architecture section's 'File Plan' subsection (task | path | Change | responsibility | use cases), Change using [[ChangeClassification]]'s 🟢/🟡/🔴 tags and Use Cases cross-referencing [[Phase1_Intake]]'s use-case ids where a task has one."
   - "Fold new contracts into the Architecture section; replace each resolved TBD with its decision. Update the 'Files & Types Changed' list (see [[ChangeClassification]]) with exact paths now that Discovery has run."
   - "If the architecture changed (new or removed component, ownership or flow change), update the existing Diagrams/*.mmd source and its embedded copy in the TDD — validate it locally first (see 'Validating a local diagram' in [[ExternalDocPass]]), keeping it on [[ChangeClassification]]'s colors if it is a structural diagram. Do not add new diagrams in this phase."
   - "Bump the TDD version (minor for a changed decision, patch for added detail) and add a Versions row."

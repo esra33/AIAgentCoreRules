@@ -40,7 +40,7 @@ names:
 
 batch_size:
   - "One coherent concern per batch — the reviewer reads every line instead of skimming."
-  - "Aim for ≤ ~300 changed lines and ≤ ~5 files; a single larger file may be its own batch."
+  - "Aim for ≤ 500 changed lines; group files that are related to one another rather than capping by file count — a single larger file may be its own batch."
   - "Follow Phase 4 order: interfaces → concrete classes → integration glue. A test file goes in the batch of the class it covers."
   - "Generated files (parsers, [GEN]) go in their own batch, marked generated in the table."
 
@@ -56,6 +56,7 @@ subcommands:
 
 ```yaml
 plan:
+  - "Expects Phase 4's Task Table Proposal to have already run for this task (the engineer has seen the full, unbatched file table and asked to divide it): the batch split below must cover exactly that table's file set, not a different one."
   - "Feature and task: arguments; else the feature whose progress file lists this session's id8 under `sessions`, and the Checkpoint `next`. Unclear → list candidates, ask and stop."
   - "Base: git -C <main checkout> branch --show-current. It must exist on origin (git ls-remote --heads origin <base>); if not, ask the engineer to push it and stop."
   - "Fresh base: git -C <main checkout> fetch origin <base>, then git rev-list --count HEAD..origin/<base>. Non-zero → ask the engineer to pull in their main checkout and stop — the worktree branches from local HEAD, so a stale checkout re-shows merged batches."
@@ -129,7 +130,7 @@ batch_plan_table:
   type_of_change: "🟢 **NEW** · 🟡 **MOD** · 🔴 **DELETE** — the change-tag emoji colors of Rules/ChangeClassification.md, so the plan matches the TDD's file list and diagrams."
   why_how:        "One short clause each. Why cites the TDD section or design decision; How names the concrete change."
   line_count:     "Added + removed lines. Files already written in the worktree: the exact count from git diff --numstat <base> (or wc -l for a new untracked file). Not yet written: an estimate from the TDD design, prefixed ~."
-  summary:        "One row per batch: files, line total, and whether it is within batch_size (≤ ~300 lines, ≤ ~5 files); 'no — <reason>' when it exceeds it."
+  summary:        "One row per batch: files, line total, and whether it is within batch_size (≤ 500 lines, one coherent concern); 'no — <reason>' when it exceeds it."
 ```
 
 ## Rules

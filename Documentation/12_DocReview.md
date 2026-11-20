@@ -87,6 +87,17 @@ When the project has tracked sessions (`GitIgnoreReports/Sessions/`, or `$SESSIO
 a **Performance** tab is added last, on every served doc. It reads each session's `session.json`
 breakdown: the same estimated token-by-category numbers the retrospective charts.
 
+- **Current usage.** Account-wide, whatever the feature toggle says. Plan limits (5-hour, 7-day
+  and spend windows: percentage used and reset time) from the latest status-line capture,
+  `plan_usage.json`, written by `session_lifecycle.py statusline` (see the session-lifecycle
+  README for the `statusLine` setting — `Tools/setup/install.py install` adds it automatically
+  when the project has none of its own; Pro/Max plans only). A window whose reset time has passed
+  is dropped, and a capture older than 30 minutes is marked stale. Without a capture the tab
+  names the `install.py` command to run. Then the token burn of
+  tracked sessions, subagents included, over the last hour, the last 5 hours and today, plus the
+  number of active sessions. Burn uses the tab's own unit (context + output per call); the plan
+  percentages come from the service, not from these tokens.
+
 - **Overview.** Sessions, total tokens, average and median per session, standard deviation, and
   the standardized-operations share.
 - **Bell curve.** A histogram of session totals with a normal curve fitted to log10(tokens). Totals
@@ -161,7 +172,8 @@ rather than requiring an external `flock` command. The detached process survives
 `doc_review.py serve-project <project> [--features-root ROOT] [--port N] [--open]` is the
 foreground entry point. Home lists active features. Selection is encoded as `?feature=Name`,
 so browser windows can review different features independently. Fixed tabs are Home, Plan, TDD,
-GDD, Class Diagram, Flow Diagram and LLM Performance; absent artifacts show placeholders.
+GDD, Framework Class Diagram, Concrete Class Diagram, Flow Diagram, Life Cycle Diagram and
+LLM Performance; absent artifacts show placeholders.
 Migrate legacy features explicitly using the feature-state tool before reviewing them.
 
 Feature comments live in `<feature-directory>/review.json`, independent of the selected document.

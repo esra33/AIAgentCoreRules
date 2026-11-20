@@ -37,12 +37,14 @@ edit triggers a `typecheck.py --files` baseline, and every `.cs` edit is run thr
 | Where is this type *or member* declared? Show me just its source. | `codeindex.py where` / `show` |
 | What does this type look like, inherited members included? Who implements it? | `codeindex.py members --inherited` / `implementers` |
 | What carries `[SomeAttribute]`? | `codeindex.py attributed` |
-| Who *uses* this type, or *calls* this member? | `usages.py` |
+| What field/property/param/return types does this type declare, or who declares one of it? | `codeindex.py uses` |
+| Who *calls* this member, or references this type in code (lexically, not just declarations)? | `usages.py` |
 | Free text (a log message, a string key, `#if !RC`) | `grep` |
 | What does this *Unity engine* API really do? | `unitysource.py` |
 | Does my new code break a mechanical coding-standards tag? | `cslint.py` |
 
-`codeindex.py` knows declarations, not call sites. `usages.py` knows call sites, but lexically.
+`codeindex.py` knows declarations — including field/property/param/return *type* dependencies
+(`uses`/`aggregation`) — not call sites. `usages.py` knows call sites, but lexically.
 `typecheck.py` is the only authoritative one.
 
 ## typecheck.py
@@ -103,6 +105,8 @@ python3 codeindex.py implementers IEventManager
 python3 codeindex.py subclasses Screen                        # transitive
 python3 codeindex.py members DummyEventManager --kind method
 python3 codeindex.py bases GemEventManager
+python3 codeindex.py uses GemEventManager                     # its field/property/param/return type deps
+python3 codeindex.py uses EventOptions --incoming              # who declares a type ref to EventOptions
 python3 codeindex.py types --assembly Assembly-CSharp --kind interface
 python3 codeindex.py sql "SELECT name, COUNT(*) FROM base_ref GROUP BY name"
 python3 codeindex.py schema                   # tables + example queries

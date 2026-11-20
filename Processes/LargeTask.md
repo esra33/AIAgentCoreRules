@@ -22,6 +22,7 @@ escalate_when:
   - "It turns out to fit SmallTask's fits_when → say so and offer to continue as /small-task (re-run `set --lane small_task`)."
 lane_switch:
   - "Entering this lane from another one in the same session (e.g. a small task that outgrew its limits) → record `set --lane large_task` before 3_plan, and offer the choice first: continue here, or /new-session \"/large-task <ask>\". The engineer decides."
+agent_model: "sonnet — every Agent tool call spawned in this lane (Explore agents, fan-out) passes model: sonnet, unless the step it comes from (e.g. /audit) pins its own model."
 ```
 
 ---
@@ -36,7 +37,7 @@ steps:
     - "Work type: large_feature by default; `set --work-type other` for tooling, framework, config or rule work, bug_fix when the large change is a fix."
   2_discovery:
     - "SystemIndex: Read the Systems/ entry for every system the change lives in or USES (messages, states, prizes — match SystemIndex's trigger comments), and the SystemPatterns/ file if one matches."
-    - "Survey each area with an Explore agent (one per area, in ONE message), asked for a compact map. Read inline only the bodies the plan rests on."
+    - "Survey each area with an Explore agent (one per area, in ONE message, model: sonnet), asked for a compact map. Read inline only the bodies the plan rests on."
     - "Existing utility first — before planning any helper, tool, window, exporter, logger or importer, look for one to extend: host metadata, then codeindex.py where/types. Record what you searched for the plan."
     - "Apply SmallTask 2_context's checks as they fit: listeners' handlers before choosing dispatch points; real data has the keys a consumer matches on; reuse an existing view's population and filter rules."
   3_plan:   # GATE — no code before the engineer approves
@@ -53,8 +54,8 @@ steps:
     - "A deliverable that is only a document or report (no code or rule edits) needs no plan.md. The Scope Gate answers (shape, output location) are its plan; state 'done when' in chat and go on to discovery. Any follow-up edits the report recommends go through 3_plan as usual."
   3_rules:   # routing table, by what the change touches
     csharp:                    [../Rules/CodingStandards.md]
-    new_class_or_interface:    [../Rules/ArchitecturalPrinciples.md]
-    subscriptions_timers_loads:[../Rules/ResourceManagementRules.md]
+    new_class_or_interface:    [../Rules/ArchitecturalPrinciples.md]   # language-agnostic (SOLID); applies to any new class/interface, not just C#
+    subscriptions_timers_loads:[../Rules/ResourceManagementRules.md]   # language-agnostic (acquire/release symmetry); applies to any subscription/timer/load, not just C#
     async_sequences:           [../Rules/MultyStepOperationsRules.md]
     csharp_tests:              [../Rules/TestingRules.md]   # Python tool tests: 5_tests (unittest in the tool's tests/), no rule file
   4_implement:   # one plan step at a time
@@ -67,7 +68,7 @@ steps:
     - "Re-read a rule file when a step starts work it governs; do not rely on memory of it in a long session."
   5_tests:
     - "C# behaviour or framework change: tests are required — TestingRules, then the host's testing setup rules. Cover the changed behaviour and its boundaries."
-    - "Python tool or skill tooling: unit tests in the tool's tests/ folder, plus a run against copies of real data — never the originals."
+    - "Python tool or skill tooling: unit tests in the tool's tests/ folder, plus a run against copies of real data — never the originals. A session-lifecycle hook/tool that writes to hooks.log or a session folder: use --reports-root <tmp dir> (or a copied session folder), not the live project's real GitIgnoreReports/Sessions."
     - "Rules/Markdown only: no tests; 6_verify's checks are the evidence. Say so."
   6_verify:
     - "Apply SmallTask 6_verify in full (typecheck verbatim on failure, real-data runs, rendered-value checks for views, faked clients for external writes)."

@@ -55,7 +55,7 @@ class GraphHandler(http.server.BaseHTTPRequestHandler):
             '/api/graph': lambda: self._db.graph(
                 name=query.get('name'), type_id=query.get('id'),
                 depth=_int(query, 'depth', DEFAULT_GRAPH_DEPTH), direction=query.get('direction', 'both'),
-                limit=_int(query, 'limit', DEFAULT_NODE_LIMIT)),
+                limit=_int(query, 'limit', DEFAULT_NODE_LIMIT), edge_kinds=query.get('edge_kinds', 'inherits')),
             '/api/tree': lambda: self._db.tree(query.get('assembly')),
             '/api/refresh': self._refresh.state,
         }

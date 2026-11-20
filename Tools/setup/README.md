@@ -51,7 +51,9 @@ option previews the new files without creating them. Noninteractive installs req
 The core layer stays under the externals folder and is applied first. Host layers are read from
 there or from root `AIMetaData/`. Merge rules:
 objects merge key by key, lists of plain values are unioned, other values are set, and hooks are
-matched by command — an existing hook with the same command is left alone. Nothing else is deleted:
+matched by command — an existing hook with the same command is left alone. `statusLine` follows
+the same spirit at a coarser grain: set only when the key is wholly absent, so an engineer's own
+status line (for any purpose) is never partially overwritten (session-lifecycle README). Nothing else is deleted:
 a skill link that points elsewhere is reported as a conflict and kept. The one exception is a
 dangling skill link into a layer's `Skills/` folder (a renamed, deleted or moved skill): it is
 reported as `skills: prune stale <name>` and removed (`check` only reports it). Pruning runs

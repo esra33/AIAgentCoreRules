@@ -101,6 +101,8 @@
     <div id="graph-controls">
       depth <select id="depth"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
       <select id="direction"><option value="both">bases + derived</option><option value="up">bases</option><option value="down">derived</option></select>
+      <label><input type="checkbox" id="edge-uses"> uses</label>
+      <label><input type="checkbox" id="edge-aggregation"> aggregation</label>
       <button id="fit">Fit</button>
     </div>
     <div id="cy"></div>
@@ -321,13 +323,25 @@
       { selector: 'edge', style: {
         'width': 1.5, 'line-color': '#6b7383', 'curve-style': 'bezier',
         'source-arrow-shape': 'triangle', 'source-arrow-fill': 'hollow', 'source-arrow-color': '#9aa3b2' } },
-      { selector: 'edge.ambiguous', style: { 'line-style': 'dashed', 'line-color': '#e5b84d', 'source-arrow-color': '#e5b84d' } },
+      { selector: 'edge.uses', style: { 'line-style': 'dashed', 'line-color': '#5aa9ff', 'source-arrow-color': '#5aa9ff' } },
+      { selector: 'edge.aggregation', style: {
+        'source-arrow-shape': 'none', 'target-arrow-shape': 'diamond', 'target-arrow-fill': 'hollow',
+        'target-arrow-color': '#8a5fbf', 'line-color': '#8a5fbf' } },
+      { selector: 'edge.ambiguous', style: { 'line-style': 'dashed', 'line-color': '#e5b84d', 'source-arrow-color': '#e5b84d', 'target-arrow-color': '#e5b84d' } },
     ],
   });
 
+  function selectedEdgeKinds() {
+    const kinds = ['inherits'];
+    if ($('edge-uses').checked) kinds.push('uses');
+    if ($('edge-aggregation').checked) kinds.push('aggregation');
+    return kinds.join(',');
+  }
+
   function graphQuery(target) {
     const key = target.id != null && !String(target.id).startsWith('ext:') ? 'id=' + target.id : 'name=' + encodeURIComponent(target.name);
-    return '/api/graph?' + key + '&depth=' + $('depth').value + '&direction=' + $('direction').value;
+    return '/api/graph?' + key + '&depth=' + $('depth').value + '&direction=' + $('direction').value +
+      '&edge_kinds=' + selectedEdgeKinds();
   }
 
   function addGraph(data) {
@@ -336,11 +350,13 @@
       if (!cy.getElementById(node.id).length) elements.push({ group: 'nodes', data: node });
     }
     for (const edge of data.edges) {
-      // Drawn base -> derived so a breadthfirst layout puts bases on top; the hollow arrow sits on the base.
-      const id = edge.source + '>' + edge.target;
+      // Drawn pointed-to -> pointing-from so a breadthfirst layout puts bases/used types on top;
+      // the arrow (or aggregation diamond) sits on that pointed-to end. Kind is part of the id since
+      // the same pair of types can be linked by more than one kind (e.g. both 'uses' and 'aggregation').
+      const id = edge.source + '>' + edge.target + ':' + edge.kind;
       if (!cy.getElementById(id).length) {
-        elements.push({ group: 'edges', data: { id, source: edge.target, target: edge.source, raw: edge.raw },
-                        classes: edge.ambiguous ? 'ambiguous' : '' });
+        elements.push({ group: 'edges', data: { id, source: edge.target, target: edge.source, raw: edge.raw, kind: edge.kind },
+                        classes: [edge.kind, edge.ambiguous ? 'ambiguous' : ''].filter(Boolean).join(' ') });
       }
     }
     cy.add(elements);
@@ -359,8 +375,12 @@
     for (const key of data.roots || []) cy.getElementById(key).addClass('root');
     layout();
     $('empty').style.display = cy.nodes().length ? 'none' : 'flex';
+    const kinds = [...new Set(data.edges.map((edge) => edge.kind))];
+    const legend = ['inherits: hollow triangle'];
+    if (kinds.includes('uses')) legend.push('uses: dashed blue arrow');
+    if (kinds.includes('aggregation')) legend.push('aggregation: violet diamond');
     $('graph-note').textContent = (data.truncated ? 'Graph truncated at ' + data.nodes.length + ' nodes — lower the depth or pick a direction. ' : '') +
-      'Dashed amber edge = base name declared in more than one namespace.';
+      legend.join(' · ') + '. Dashed amber = ambiguous name (declared in more than one namespace).';
   }
 
   cy.on('tap', 'node', (event) => {
@@ -376,6 +396,8 @@
   $('fit').addEventListener('click', () => cy.fit(undefined, 30));
   $('depth').addEventListener('change', () => state.root && loadGraph(state.root, true));
   $('direction').addEventListener('change', () => state.root && loadGraph(state.root, true));
+  $('edge-uses').addEventListener('change', () => state.root && loadGraph(state.root, true));
+  $('edge-aggregation').addEventListener('change', () => state.root && loadGraph(state.root, true));
 
   // -- detail -------------------------------------------------------------
 

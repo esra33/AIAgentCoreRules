@@ -119,8 +119,8 @@ architecture_checks:
   - "Replace the template's placeholder bracket text with real prose — no leftover
      '[Insert architecture diagram...]' once the section has content."
   - "List every file/type the section names under a 'Files & Types Changed' subsection, classified
-     NEW/MODIFIED/DELETED per [[ChangeClassification]] — three-line summary (Nature, Reason,
-     Implementation) visible, anything deeper in a collapsible block. A type's exact path may still
+     NEW/MODIFIED/DELETED per [[ChangeClassification]] — one TLDR line visible, Nature/Reason/
+     Implementation and anything deeper inside the collapsible block. A type's exact path may still
      be TBD before Phase 2 Discovery; classify it anyway."
   - "Any structural diagram (class/component) uses [[ChangeClassification]]'s NEW/MODIFIED/DELETED
      colors and legend — a process-flow diagram keeps its own separate palette, also defined there."
@@ -374,9 +374,16 @@ task_list_rules:
 
 ```yaml
 use_case_format:
-  - id: 1
+  - id: <FeaturePrefix><CategoryLetter><n>   # e.g. SlimA1, SlimF2 — see id_convention below
     description: "Scenario description"
     solution: "How it is handled (or TBD)"
+id_convention:
+  shape:   "<FeaturePrefix><CategoryLetter><n>"
+  prefix:  "Short feature identifier, shared by the GDD, TDD and UseCases.md — e.g. 'Slim' for GameProgressSaveSlim."
+  letter:  "One letter grouping scenarios by category (main flows, conflict handling, device/reinstall, QA/debug tooling, …); the letters and what each groups are the feature's own choice, stated once near the top of UseCases.md."
+  n:       "Sequential within that letter, starting at 1 (SlimF1, SlimF2, SlimF3 …)."
+  reuse:   "The GDD and TDD key on the same ids (e.g. a GDD §4 flow or a TDD Edge Cases row) so a task row, a design decision, or a review comment can cross-reference a scenario by id instead of restating it in prose."
+  edge_cases_table: "The TDD's separate 'Edge Cases [Optional]' table (plain numeric # column) keeps its own numbering — it is not required to use this id convention, since it predates it and progress_view.py does not parse either table's ids."
 ```
 
 ---

@@ -14,7 +14,7 @@ import os
 import sqlite3
 from contextlib import closing
 
-SCHEMA_VERSION = '3'
+SCHEMA_VERSION = '4'
 DEFAULT_GRAPH_DEPTH = 2
 MAX_GRAPH_DEPTH = 6
 DEFAULT_NODE_LIMIT = 150
@@ -131,6 +131,67 @@ class GraphDb:
             conn, 'SELECT ' + TYPE_COLUMNS + TYPE_FROM + ' JOIN base_ref b ON b.type_id = t.id'
             ' WHERE b.name = ? ORDER BY a.name, t.name', (name,))]
 
+    def _type_row(self, conn, type_id):
+        rows = self._rows(conn, 'SELECT ' + TYPE_COLUMNS + TYPE_FROM + ' WHERE t.id = ?', (type_id,))
+        return self._clean(rows[0]) if rows else None
+
+    def _type_refs(self, conn, type_id):
+        """Outgoing type_ref edges of a single type: field/property/param/return
+        dependencies, each flagged external/ambiguous like _bases()."""
+        refs = self._rows(
+            conn, 'SELECT member_id, member_kind, name, raw, relation, is_collection, position'
+                  ' FROM type_ref WHERE owner_id = ? ORDER BY member_id, position', (type_id,))
+        counts = self._declaration_counts(conn, [ref['name'] for ref in refs])
+        for ref in refs:
+            declared = counts.get(ref['name'], 0)
+            ref['external'] = declared == 0
+            ref['ambiguous'] = declared > 1
+        return refs
+
+    def _used_by(self, conn, name):
+        """Other types' type_ref rows naming `name` as their referenced type, with the
+        referencing type's identity."""
+        return self._rows(
+            conn, 'SELECT t.id AS owner_id, t.name AS owner_name, r.member_kind, r.raw,'
+                  '       r.relation, r.is_collection'
+                  '  FROM type_ref r JOIN type t ON t.id = r.owner_id'
+                  ' WHERE r.name = ? ORDER BY t.name', (name,))
+
+    def _edges_out(self, conn, type_id, kinds):
+        """(name, raw, kind) outgoing edges of type_id restricted to `kinds` -- 'inherits'
+        from base_ref, 'uses'/'aggregation' from type_ref."""
+        out = [(b['name'], b['raw'], 'inherits') for b in self._bases(conn, type_id)] \
+            if 'inherits' in kinds else []
+        wanted = kinds & {'uses', 'aggregation'}
+        if wanted:
+            out.extend((row['name'], row['raw'], row['relation']) for row in self._rows(
+                conn, 'SELECT name, raw, relation FROM type_ref WHERE owner_id = ?', (type_id,))
+                if row['relation'] in wanted)
+        return out
+
+    def _edges_in(self, conn, name, kinds):
+        """(child type row, raw, kind) incoming edges naming `name`, restricted to `kinds`."""
+        out = []
+        if 'inherits' in kinds:
+            for child in self._derived(conn, name):
+                raw = conn.execute('SELECT raw FROM base_ref WHERE type_id = ? AND name = ? LIMIT 1',
+                                   (child['id'], name)).fetchone()
+                out.append((child, raw[0] if raw else name, 'inherits'))
+        wanted = kinds & {'uses', 'aggregation'}
+        if wanted:
+            seen = set()
+            for row in self._rows(
+                conn, 'SELECT t.id, r.raw, r.relation FROM type_ref r JOIN type t ON t.id = r.owner_id'
+                      ' WHERE r.name = ?', (name,)):
+                key = (row['id'], row['relation'])
+                if row['relation'] not in wanted or key in seen:
+                    continue
+                seen.add(key)
+                child = self._type_row(conn, row['id'])
+                if child:
+                    out.append((child, row['raw'], row['relation']))
+        return out
+
     def _members(self, conn, type_id, kind=None):
         sql = ('SELECT name, kind, signature, line, access, ' + ', '.join(MEMBER_FLAG_COLUMNS) +
                ' FROM member WHERE type_id = ?')
@@ -150,9 +211,12 @@ class GraphDb:
             else:
                 declarations = self.types_named(conn, name)
             derived = self._derived(conn, name) if declarations else []
+            used_by = self._used_by(conn, name) if declarations else []
             for declaration in declarations:
                 declaration['bases'] = self._bases(conn, declaration['id'])
                 declaration['derived'] = derived
+                declaration['uses'] = self._type_refs(conn, declaration['id'])
+                declaration['used_by'] = used_by
                 if members:
                     declaration['members'] = self._members(conn, declaration['id'], member_kind)
         return {'name': name, 'ambiguous': len(declarations) > 1, 'types': declarations}
@@ -160,14 +224,21 @@ class GraphDb:
     # -- graph -----------------------------------------------------------
 
     def graph(self, name=None, type_id=None, depth=DEFAULT_GRAPH_DEPTH, direction='both',
-              limit=DEFAULT_NODE_LIMIT):
-        """Inheritance neighbourhood: nodes keyed by type id ('ext:<Name>' for external bases).
+              limit=DEFAULT_NODE_LIMIT, edge_kinds='inherits'):
+        """Structural neighbourhood: nodes keyed by type id ('ext:<Name>' for external bases).
 
-        Edges point from the derived type to its base. 'up' follows bases, 'down' follows
-        derived types, 'both' does each from the root (not siblings of bases).
+        Edges point from the dependent/derived type to what it depends on/derives from.
+        'up' follows them outward (bases; or what this type uses/aggregates), 'down'
+        follows them inward (derived types; or types that use/aggregate this one), 'both'
+        does each from the root (not siblings). `edge_kinds` is a comma list of 'inherits'
+        (base_ref -- the default; omitting it reproduces the original inheritance-only
+        graph), 'uses' and 'aggregation' (both from type_ref). Every edge carries a `kind`.
         """
         if direction not in ('up', 'down', 'both'):
             raise ValueError("direction must be 'up', 'down' or 'both'")
+        kinds = {k.strip() for k in (edge_kinds or 'inherits').split(',') if k.strip()}
+        if not kinds or not kinds <= {'inherits', 'uses', 'aggregation'}:
+            raise ValueError("edge_kinds must be one or more of: inherits, uses, aggregation")
         depth = max(0, min(int(depth), MAX_GRAPH_DEPTH))
         limit = max(1, int(limit))
         nodes, edges, edge_keys = {}, [], set()
@@ -183,11 +254,13 @@ class GraphDb:
                 nodes[key] = node
             return key
 
-        def add_edge(source, target, raw, ambiguous):
-            if (source, target) in edge_keys:
+        def add_edge(source, target, raw, ambiguous, kind):
+            edge_key = (source, target, kind)
+            if edge_key in edge_keys:
                 return
-            edge_keys.add((source, target))
-            edges.append({'source': source, 'target': target, 'raw': raw, 'ambiguous': ambiguous})
+            edge_keys.add(edge_key)
+            edges.append({'source': source, 'target': target, 'raw': raw, 'ambiguous': ambiguous,
+                          'kind': kind})
 
         with closing(self._connect()) as conn:
             if type_id is not None:
@@ -204,18 +277,18 @@ class GraphDb:
                 for level in range(1, depth + 1):
                     next_frontier = []
                     for row in frontier:
-                        for base in self._bases(conn, row['id']):
-                            targets = self.types_named(conn, base['name'])
+                        for edge_name, raw, kind in self._edges_out(conn, row['id'], kinds):
+                            targets = self.types_named(conn, edge_name)
                             if not targets:
-                                key = 'ext:' + base['name']
+                                key = 'ext:' + edge_name
                                 if key not in nodes:
                                     if len(nodes) >= limit:
                                         truncated = True
                                         continue
-                                    nodes[key] = {'id': key, 'name': base['name'], 'kind': 'external',
+                                    nodes[key] = {'id': key, 'name': edge_name, 'kind': 'external',
                                                   'namespace': '', 'container': '', 'file': None, 'line': None,
                                                   'assembly': None, 'flags': [], 'depth': -level}
-                                add_edge(str(row['id']), key, base['raw'], False)
+                                add_edge(str(row['id']), key, raw, False, kind)
                                 continue
                             for target in targets:
                                 if str(target['id']) not in nodes:
@@ -224,7 +297,7 @@ class GraphDb:
                                         continue
                                     add_node(target, -level)
                                     next_frontier.append(target)
-                                add_edge(str(row['id']), str(target['id']), base['raw'], len(targets) > 1)
+                                add_edge(str(row['id']), str(target['id']), raw, len(targets) > 1, kind)
                     frontier = next_frontier
 
             if direction in ('down', 'both'):
@@ -233,17 +306,14 @@ class GraphDb:
                     next_frontier = []
                     for row in frontier:
                         parents = self.types_named(conn, row['name'])
-                        for child in self._derived(conn, row['name']):
+                        for child, raw, kind in self._edges_in(conn, row['name'], kinds):
                             if str(child['id']) not in nodes:
                                 if len(nodes) >= limit:
                                     truncated = True
                                     continue
                                 add_node(child, level)
                                 next_frontier.append(child)
-                            raw = conn.execute('SELECT raw FROM base_ref WHERE type_id = ? AND name = ? LIMIT 1',
-                                               (child['id'], row['name'])).fetchone()
-                            add_edge(str(child['id']), str(row['id']), raw[0] if raw else row['name'],
-                                     len(parents) > 1)
+                            add_edge(str(child['id']), str(row['id']), raw, len(parents) > 1, kind)
                     frontier = next_frontier
 
         return {'root': roots[0]['name'], 'roots': root_keys, 'nodes': list(nodes.values()),

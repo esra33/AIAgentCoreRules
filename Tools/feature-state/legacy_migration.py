@@ -182,8 +182,10 @@ def _import_artifacts(directory, state):
         path = directory / f"{state['feature']}_{suffix}.md"
         if path.is_file():
             state["artifact_roles"][role] = path.name
-    for role, names in (("class_diagram", ("01_ClassStructure.mmd", "01_ClassDiagram.mmd")),
-                        ("flow_diagram", ("02_MainFlow.mmd", "02_FlowDiagram.mmd"))):
+    for role, names in (("framework_class_diagram", ("01_ClassStructure.mmd", "01_ClassDiagram.mmd", "01a_FrameworkClassDiagram.mmd")),
+                        ("concrete_class_diagram", ("01b_ConcreteClassDiagram.mmd",)),
+                        ("flow_diagram", ("02_MainFlow.mmd", "02_FlowDiagram.mmd")),
+                        ("life_cycle_diagram", ("03_LifeCycleDiagram.mmd",))):
         candidates = [directory / "Diagrams" / name for name in names if (directory / "Diagrams" / name).is_file()]
         if len(candidates) == 1:
             state["artifact_roles"][role] = str(candidates[0].relative_to(directory))

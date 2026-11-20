@@ -12,6 +12,12 @@ Served from a feature folder (one with <Name>_Progress.md), the model also scope
 a session belongs to it when its session.json "feature" tag (set --feature) names it, or when its
 folder is listed under the Progress file's "sessions:" (matched by the id8 suffix, since a lane
 change renames the folder). The page toggles between that view and all sessions.
+
+"current" is the account's usage right now, independent of the feature scope:
+  - plan    the latest rate_limits (5-hour, 7-day, spend) that session_lifecycle.py statusline saved
+            to <reports root>/plan_usage.json; windows whose resets_at has passed are dropped
+  - burn    tokens of tracked sessions (main transcript plus subagents) in the last hour, the last
+            5 hours and since local midnight, from each model call's timestamp
 """
 import datetime
 import json
@@ -39,6 +45,10 @@ ACTIVE_WINDOW_SECONDS = 60 * 60
 FEATURE_LINE = re.compile(r'^feature:\s*"?([^"\s#]+)', re.MULTILINE)
 # A quoted session folder name, e.g. "2026-10-29_1358_small-task_75453a1d"; group 1 = its id8.
 SESSION_FOLDER = re.compile(r'"\d{4}-\d{2}-\d{2}_[^"]*_([0-9a-f]{8})"')
+# A plan capture older than this is shown as stale: no session with the status line has replied since.
+PLAN_STALE_SECONDS = 30 * 60
+PLAN_WINDOWS = [("five_hour", "5-hour"), ("seven_day", "7-day"), ("spend_limit", "Spend")]
+BURN_WINDOWS = [("last_hour", "Last hour", 60 * 60), ("last_5h", "Last 5 hours", 5 * 60 * 60)]
 
 
 def find_reports_root(doc_path: Path) -> Optional[Path]:
@@ -56,8 +66,10 @@ def find_reports_root(doc_path: Path) -> Optional[Path]:
 
 
 def watched_paths(reports_root: Path) -> List[Path]:
-    """Every session.json plus the root itself, whose mtime changes when a session folder appears."""
-    return [reports_root] + _state_paths(reports_root)
+    """Every session.json, the plan capture (rewritten on every assistant reply, so it also refreshes
+    the burn tiles) and the root itself, whose mtime changes when a session folder appears."""
+    plan_path = reports_root / token_breakdown.PLAN_USAGE_FILE
+    return [reports_root] + _state_paths(reports_root) + ([plan_path] if plan_path.is_file() else [])
 
 
 def build_model(reports_root: Path, now: Optional[float] = None, progress_path: Optional[Path] = None) -> Dict:
@@ -78,6 +90,7 @@ def build_model(reports_root: Path, now: Optional[float] = None, progress_path: 
             and session["last_context"] >= warning["threshold"]
     return {"root": str(reports_root), "standardized_names": token_breakdown.STANDARDIZED,
             "context_warning": warning,
+            "current": current_usage(reports_root, now, sum(1 for session in sessions if session["active"])),
             "overview": _overview(sessions), "sessions": sessions, "feature": feature,
             "feature_overview": _overview([session for session in sessions if session["in_feature"]])}
 
@@ -89,6 +102,76 @@ def context_warning(sessions: List[Dict]) -> Dict:
     threshold = token_breakdown.context_warning_threshold(peaks)
     return {"threshold": threshold, "share": token_breakdown.CONTEXT_WARNING_SHARE, "sessions": len(peaks),
             "median_peak": statistics.median(peaks) if threshold is not None else None}
+
+
+def current_usage(reports_root: Path, now: float, active_sessions: int = 0) -> Dict:
+    """{"plan": latest capture or None, "burn": tokens per recent window} — see the module docstring."""
+    return {"plan": _plan(reports_root / token_breakdown.PLAN_USAGE_FILE, now),
+            "burn": _burn(reports_root, now, active_sessions)}
+
+
+def _plan(path: Path, now: float) -> Optional[Dict]:
+    try:
+        capture = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    limits = capture.get("rate_limits") if isinstance(capture, dict) else None
+    if not isinstance(limits, dict):
+        return None
+    windows = []
+    for key, label in PLAN_WINDOWS:
+        window = limits.get(key)
+        if not isinstance(window, dict) or window.get("used_percentage") is None:
+            continue
+        resets_at = window.get("resets_at")
+        if resets_at is not None and resets_at <= now:
+            continue   # its period is over; the next capture starts a fresh one
+        windows.append({"key": key, "label": label, "used_percentage": window["used_percentage"],
+                        "resets_at": resets_at, "used_usd": window.get("used_usd"),
+                        "limit_usd": window.get("limit_usd"), "period": window.get("period")})
+    captured_at = capture.get("captured_at") or 0
+    return {"captured_at": captured_at, "age_seconds": max(now - captured_at, 0),
+            "stale": now - captured_at > PLAN_STALE_SECONDS, "windows": windows}
+
+
+def _burn(reports_root: Path, now: float, active_sessions: int) -> Dict:
+    midnight = datetime.datetime.fromtimestamp(now).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    starts = [(key, label, now - seconds) for key, label, seconds in BURN_WINDOWS] + [("today", "Today", midnight)]
+    earliest = min(start for _key, _label, start in starts)
+    totals = {key: {"label": label, "tokens": 0, "calls": 0, "sessions": 0} for key, label, _start in starts}
+    for transcripts in _session_transcripts(reports_root, earliest):
+        counted = set()
+        for path in transcripts:
+            for stamp, tokens in token_breakdown.timed_calls(str(path)):
+                for key, _label, start in starts:
+                    if start <= stamp <= now:
+                        totals[key]["tokens"] += tokens
+                        totals[key]["calls"] += 1
+                        counted.add(key)
+        for key in counted:
+            totals[key]["sessions"] += 1
+    return {"active_sessions": active_sessions,
+            "windows": [dict(totals[key], key=key) for key, _label, _start in starts]}
+
+
+def _session_transcripts(reports_root: Path, since: float) -> List[List[Path]]:
+    """Per tracked session written to since `since`: its transcript plus its subagent transcripts."""
+    sessions = []
+    for state_path in _state_paths(reports_root):
+        try:
+            state = json.loads(state_path.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(state, dict) or not state.get("transcript_path") or not state.get("session_id"):
+            continue
+        transcript = Path(state["transcript_path"])
+        if not transcript.is_file():
+            continue
+        subagents = sorted((transcript.parent / state["session_id"] / "subagents").glob("*.jsonl"))
+        paths = [path for path in [transcript] + subagents if path.stat().st_mtime >= since]
+        if paths:
+            sessions.append(paths)
+    return sessions
 
 
 def feature_filter(progress_path: Optional[Path]):
@@ -142,6 +225,8 @@ def _session(state_path: Path, now: float) -> Optional[Dict]:
     for name, tokens in (breakdown.get("categories") or {}).items():
         categories.append({"name": name, "tokens": tokens, "share": tokens / total if total else 0.0})
     started_at = state.get("started_at") or ""
+    model = state.get("model") or ""
+    active = not state.get("ended_at") and now - state_path.stat().st_mtime < ACTIVE_WINDOW_SECONDS
     return {
         "id": state["session_id"][:8],
         "folder": state_path.parent.name,
@@ -152,7 +237,11 @@ def _session(state_path: Path, now: float) -> Optional[Dict]:
         "started_at": started_at,
         "ended_at": state.get("ended_at") or "",
         "compiled_at": state.get("compiled_at") or "",
-        "active": not state.get("ended_at") and now - state_path.stat().st_mtime < ACTIVE_WINDOW_SECONDS,
+        "active": active,
+        "model": model,
+        # Only an active session's gauge is current; a finished one's last call is no longer "now".
+        "context_window": token_breakdown.context_window_usage(model, breakdown.get("last_context") or 0)
+            if active and model else None,
         "usage": _usage(state.get("tokens") or {}),
         "compiled": bool(total),
         "error": breakdown.get("error") or "",

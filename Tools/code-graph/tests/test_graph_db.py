@@ -10,7 +10,7 @@ sys.path.insert(0, str(TOOL_DIR))
 
 from graph_db import GraphDb, GraphDbError  # noqa: E402
 
-# Subset of codeindex.py's SCHEMA (schema_version 3) -- the tables and columns this tool reads.
+# Subset of codeindex.py's SCHEMA (schema_version 4) -- the tables and columns this tool reads.
 SCHEMA = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE assembly(id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, csproj TEXT NOT NULL);
@@ -26,6 +26,9 @@ CREATE TABLE base_ref(id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL, name TEX
 CREATE TABLE member(id INTEGER PRIMARY KEY, type_id INTEGER NOT NULL, name TEXT NOT NULL,
     kind TEXT NOT NULL, signature TEXT NOT NULL, line INTEGER NOT NULL, access TEXT,
     is_static INTEGER, is_abstract INTEGER, is_virtual INTEGER, is_override INTEGER, is_async INTEGER);
+CREATE TABLE type_ref(id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL, member_id INTEGER NOT NULL,
+    member_kind TEXT NOT NULL, name TEXT NOT NULL, raw TEXT NOT NULL, relation TEXT NOT NULL,
+    is_collection INTEGER NOT NULL DEFAULT 0, position INTEGER);
 """
 
 # (id, name, arity, namespace, kind, file_id, line, is_abstract)
@@ -38,6 +41,8 @@ TYPES = [
     (6, 'UsesShared', 0, 'A', 'class', 4, 9, 0),
     (7, 'Repo', 1, 'Data', 'class', 6, 2, 0),
     (8, 'EditorTool', 0, 'Tools', 'class', 7, 4, 0),
+    (9, 'EventLogger', 0, 'Events', 'class', 1, 1, 0),
+    (10, 'EventOptions', 0, 'Events', 'class', 1, 1, 0),
 ]
 # (type_id, name, raw, position)
 BASES = [
@@ -55,10 +60,22 @@ MEMBERS = [
     (2, 'Count', 'property', 'public int Count', 8, 0, 0, 0),
     (3, 'FetchEvents', 'method', 'public override Task FetchEvents()', 9, 0, 0, 1),
     (3, 'Create', 'method', 'public static GemEventManager Create()', 12, 1, 0, 0),
+    (3, 'Logger', 'field', 'private readonly EventLogger Logger', 13, 0, 0, 0),
+    (3, 'Fetch', 'method', 'public Task Fetch(EventOptions options)', 14, 0, 0, 0),
+    (1, 'Fetch', 'method', 'Task Fetch(IDisposable token)', 5, 0, 0, 0),
+    (3, 'Items', 'field', 'private readonly List<EventOptions> Items', 15, 0, 0, 0),
+]
+# (owner_id, member_id, member_kind, name, raw, relation, is_collection, position) --
+# member_id is the 1-based position of the referencing row in MEMBERS above.
+TYPE_REFS = [
+    (3, 6, 'field', 'EventLogger', 'EventLogger', 'aggregation', 0, 0),
+    (3, 7, 'param', 'EventOptions', 'EventOptions', 'uses', 0, 0),
+    (1, 8, 'param', 'IDisposable', 'IDisposable', 'uses', 0, 0),
+    (3, 9, 'field', 'EventOptions', 'List<EventOptions>', 'aggregation', 1, 0),
 ]
 
 
-def build_fixture_db(directory, schema_version='3'):
+def build_fixture_db(directory, schema_version='4'):
     """Write a small codeindex-shaped DB into directory and return its path."""
     path = os.path.join(directory, 'codeindex.sqlite')
     conn = sqlite3.connect(path)
@@ -79,6 +96,9 @@ def build_fixture_db(directory, schema_version='3'):
     conn.executemany(
         'INSERT INTO member (type_id, name, kind, signature, line, access, is_static, is_abstract, is_override) '
         "VALUES (?, ?, ?, ?, ?, 'public', ?, ?, ?)", MEMBERS)
+    conn.executemany(
+        'INSERT INTO type_ref (owner_id, member_id, member_kind, name, raw, relation, is_collection, position) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?)', TYPE_REFS)
     conn.commit()
     conn.close()
     return path
@@ -133,7 +153,8 @@ class GraphDbTest(unittest.TestCase):
                          [('EventManagerBase', False), ('MonoBehaviour', True)])
         self.assertEqual([d['name'] for d in gem['derived']], ['EditorTool'])
         self.assertEqual([(m['name'], m['flags']) for m in gem['members']],
-                         [('FetchEvents', ['override']), ('Create', ['static'])])
+                         [('FetchEvents', ['override']), ('Create', ['static']), ('Logger', []),
+                          ('Fetch', []), ('Items', [])])
 
     def test_type_detail_member_kind_and_no_members(self):
         base = self.db.type_detail('EventManagerBase', member_kind='property')['types'][0]
@@ -150,12 +171,25 @@ class GraphDbTest(unittest.TestCase):
     def test_type_detail_unknown(self):
         self.assertEqual(self.db.type_detail('Nope')['types'], [])
 
+    def test_type_detail_uses_and_used_by(self):
+        gem = self.db.type_detail('GemEventManager')['types'][0]
+        self.assertEqual([(ref['member_kind'], ref['name'], ref['relation'], ref['is_collection'],
+                           ref['external']) for ref in gem['uses']],
+                         [('field', 'EventLogger', 'aggregation', 0, False),
+                          ('param', 'EventOptions', 'uses', 0, False),
+                          ('field', 'EventOptions', 'aggregation', 1, False)])
+        options = self.db.type_detail('EventOptions')['types'][0]
+        self.assertEqual(sorted((ref['owner_name'], ref['relation'], ref['is_collection'])
+                                for ref in options['used_by']),
+                         sorted([('GemEventManager', 'aggregation', 1), ('GemEventManager', 'uses', 0)]))
+        self.assertTrue(self.db.type_detail('IEventManager')['types'][0]['uses'][0]['external'])
+
     def test_graph_up_includes_external_base(self):
         graph = self.db.graph('GemEventManager', direction='up', depth=3)
         names = {node['name'] for node in graph['nodes']}
         self.assertEqual(names, {'GemEventManager', 'EventManagerBase', 'IEventManager', 'MonoBehaviour'})
         self.assertIn({'source': '3', 'target': 'ext:MonoBehaviour', 'raw': 'UnityEngine.MonoBehaviour',
-                       'ambiguous': False}, graph['edges'])
+                       'ambiguous': False, 'kind': 'inherits'}, graph['edges'])
 
     def test_graph_down_and_depth(self):
         graph = self.db.graph('IEventManager', direction='down', depth=1)
@@ -179,8 +213,31 @@ class GraphDbTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.db.graph('Shared', direction='sideways')
 
+    def test_graph_default_edge_kinds_is_inherits_only(self):
+        graph = self.db.graph('GemEventManager', direction='up', depth=3)
+        self.assertTrue(all(edge['kind'] == 'inherits' for edge in graph['edges']))
+        self.assertNotIn('EventOptions', {node['name'] for node in graph['nodes']})
+
+    def test_graph_edge_kinds_uses_and_aggregation(self):
+        graph = self.db.graph('GemEventManager', direction='up', depth=1, edge_kinds='uses,aggregation')
+        self.assertEqual({node['name'] for node in graph['nodes']},
+                         {'GemEventManager', 'EventLogger', 'EventOptions'})
+        self.assertEqual({(edge['target'], edge['kind']) for edge in graph['edges']},
+                         {('9', 'aggregation'), ('10', 'uses'), ('10', 'aggregation')})
+
+    def test_graph_edge_kinds_down_finds_dependents(self):
+        graph = self.db.graph('EventOptions', direction='down', depth=1, edge_kinds='uses,aggregation')
+        self.assertEqual({node['name'] for node in graph['nodes']}, {'EventOptions', 'GemEventManager'})
+        self.assertEqual({edge['kind'] for edge in graph['edges']}, {'uses', 'aggregation'})
+
+    def test_graph_edge_kinds_invalid_raises(self):
+        with self.assertRaises(ValueError):
+            self.db.graph('GemEventManager', edge_kinds='sideways')
+        with self.assertRaises(ValueError):
+            self.db.graph('GemEventManager', edge_kinds=',,')
+
     def test_tree_assemblies_and_namespaces(self):
-        self.assertEqual(self.db.tree()['assemblies'], [{'name': 'Game', 'types': 7}, {'name': 'Game.Editor', 'types': 1}])
+        self.assertEqual(self.db.tree()['assemblies'], [{'name': 'Game', 'types': 9}, {'name': 'Game.Editor', 'types': 1}])
         namespaces = self.db.tree('Game')['namespaces']
         self.assertEqual([ns['name'] for ns in namespaces], ['A', 'B', 'Data', 'Events', 'Events.Gem'])
         self.assertEqual(self.db.tree('Nope')['namespaces'], [])

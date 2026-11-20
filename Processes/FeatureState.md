@@ -44,6 +44,39 @@ Run the shared CLI from the project root, resolving `<state-tool>` to
 Lifecycle skills retain all engineer approvals. Pass payloads as JSON objects, never inline shell substitutions.
 
 
+## Field consumers
+
+For each top-level `state.json` key: which operation/skill writes it, and which skill or tool
+reads it back for display or resume. Check here before adding a new field or a new reader —
+most additions need both a writer op and a resume-work/progress_view.py reader, and missing
+either one was the root cause of two Corrections in the 2026-11-18 retro that added
+`tasks[].table_approved`/`artifact_roles`.
+
+| Key | Writer(s) | Reader(s) | Notes |
+| --- | --- | --- | --- |
+| `schema_version` | `create` | `validate_state` only | No skill displays it. |
+| `revision` | `create`; every mutating op (+1) | every skill via `get` before mutating | Optimistic-concurrency token. |
+| `feature` | `create` | progress_view.py, resume-work, project_server.py, `list_features` | Must equal the feature directory name. |
+| `current_phase` | `create`; `gate` | progress_view.py, resume-work, `list_features`, project_server.py | `checkpoint`'s own wording suggests it also updates this; its `allowed` set does not — treat as `gate`-only. |
+| `status` | `create`; `checkpoint`; `gate`; `close`/`reopen` | progress_view.py, resume-work, active-features, close-feature/reopen-feature, `list_features` | |
+| `updated_at` | auto-stamped by every mutation | active-features, resume-work drift check, `list_features` sort | Never set directly by a payload. |
+| `artifacts` | `checkpoint`, `phase-report`, `milestone-report`, `artifact` | `validate_state` path-safety check only | Not rendered by any skill; resume-work reads `checkpoint.done` instead. |
+| `sessions` | `checkpoint`, `feature-pr`, `close-feature`, `reopen-feature` | resume-work, publish-batch, feature-pr, perf_view.py | Deduplicated by session id8. |
+| `sources_of_truth` | `checkpoint` | resume-work (local-first drift note) | |
+| `pull_requests` | `pr` (feature-pr, publish-batch) | progress_view.py, feature-pr | Keyed by `V<n>` phase. |
+| `batches` | `batch` (publish-batch) | progress_view.py, publish-batch's own `get` | |
+| `step_status` | `checkpoint`; cleared by `gate` | progress_view.py step badges | |
+| `tdd_sections` | `checkpoint`; cleared by `gate` | progress_view.py section badges | |
+| `checkpoint` | `checkpoint`; cleared by `gate` | resume-work, progress_view.py, `list_features` summary | |
+| `gates` | `gate` | progress_view.py, resume-work, `render_progress` | `gate_confirmed_by`/`phase_completed` are per-record fields, not top-level keys. |
+| `closed` | `close`/`reopen`; `migrate` | `render_progress`; reopen-feature re-parses that generated text | |
+| `tasks` | `task` | progress_view.py (`task_table_approved`, task states) | `tasks[].table_approved` is set via `task`; read by progress_view.py and resume-work's Task Table Proposal resume rule. |
+| `artifact_roles` | `artifact`; `migrate` (filename-convention defaults) | resume-work (reload a persisted per-task artifact by role); project_server.py tabs | Any new per-task artifact needs a role here or resume-work re-derives it from the TDD instead of reusing the file. |
+| `phase_reports` | `phase-report` | `gate` (required for phases ≥2); project_server.py tabs | Not read by progress_view.py's Progress tab. |
+| `milestone_reports` | `milestone-report` | project_server.py tabs | Ad hoc, e.g. a V-stage summary. |
+| `integration_checklist` | `integration-checklist` (Phase 6 only) | progress_view.py Phase 6 card | Restricted to active Phase 6. |
+| `legacy_notes` | `migrate` | `render_progress`; `get --section legacy_notes` | Excluded by default from `get` and from mutation return payloads. |
+
 ## Integration checklist
 
 The optional `integration_checklist` ordered list defaults to empty for historical features.

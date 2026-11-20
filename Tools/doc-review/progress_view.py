@@ -12,6 +12,8 @@ standalone preview still supports line-based Markdown parsing. Document/process 
   - Progress.md pull_requests block       "  V0: [9923, 9930]" -> each PR's notes, fetched with gh (pr_notes.py)
   - Progress.md batches block             "  T3:" -> branch, plan, merged, open_pr (written by /publish-batch);
                                           batch <merged + 1> of <len(plan)> on the task with that id
+  - state.json tasks[].table_approved     Phase 4's Task Table Proposal reviewed, no batch plan yet ->
+                                          shown as "table approved" until a batches entry exists for the task
   - Progress.md phase_handoff block       "  consistency_findings: [...]" -> Sub-phase 1c's findings
                                           (each pre-tagged ✅/⚠️/❌ by the agent), nested under the "1c" step
   - Phase*.md "### Section: <Name>"       a step's TDD section checklist (Sub-phase 1b); a section is checked when
@@ -158,10 +160,14 @@ def build_model(progress_path: Path, process_dir: Path = CREATE_FEATURE_DIR,
                                       for number in pull_requests.get(dev_phase["key"], [])]
     batches = state["batches"] if state is not None else _batches(progress_text)
     task_states = {task["id"]: task["status"] for task in state["tasks"]} if state is not None else {}
+    task_table_approved = {task["id"]: bool(task.get("table_approved")) for task in state["tasks"]} if state is not None else {}
     for task in [task for stage in stages for task in stage["tasks"]] + [task for dev in dev_phases for task in dev["tasks"]]:
         if state is not None:
             task["status"] = task_states.get(_state_task_id(task["id"]), "todo")
-        task["batch"] = _batch_view(batches.get(task["id"]), progress_path.parent, pr_url)
+        batch_view = _batch_view(batches.get(task["id"]), progress_path.parent, pr_url)
+        if batch_view is None and task_table_approved.get(_state_task_id(task["id"])):
+            batch_view = {"table_approved": True}
+        task["batch"] = batch_view
     # The V-phase in progress starts with its tasks expanded: the first one with an unfinished task.
     in_progress = next((dev for dev in dev_phases if any(task["status"] != "done" for task in dev["tasks"])), None)
     for dev_phase in dev_phases:

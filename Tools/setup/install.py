@@ -22,8 +22,9 @@ Host layers may live there or in <project>/AIMetaData/. Each layer may ship:
 
 Merge rules: objects merge key by key, lists of plain values are unioned, other values are set.
 Hooks are matched by command string — a hook whose command is already present in that event is
-left as it is. A changed settings.json is backed up to settings.json.bak before it is written.
-Nothing is ever deleted.
+left as it is. statusLine is set only when wholly absent — an existing one, even a different
+command, is left alone rather than merged field by field. A changed settings.json is backed up
+to settings.json.bak before it is written. Nothing is ever deleted.
 """
 
 import argparse
@@ -41,6 +42,9 @@ CORE_FRAGMENT = os.path.join(SCRIPT_DIR, "settings.core.json")
 HOST_FRAGMENT = os.path.join("Setup", "settings.host.json")
 EXTERNALS = "GitIgnoredExternals"
 CORE_NAME = "AIAgentCoreRules"
+# statusLine's execution context (cwd, $CLAUDE_PROJECT_DIR) is undocumented, unlike hooks', so its
+# command needs this project's real absolute core path rather than a $CLAUDE_PROJECT_DIR-relative one.
+CORE_ABS_PLACEHOLDER = "__AIAgentCoreRules_ABS__"
 HOST_NAME = "AIMetaData"
 CORE_IMPORTS = [
     "@GitIgnoredExternals/AIAgentCoreRules/Rules/MetaRouter.md",
@@ -219,11 +223,25 @@ def merge_hooks(target, fragment, source, log):
                 commands.add(hook.get("command"))
 
 
+def merge_status_line(target, value, source, log):
+    """Set only when the key is wholly absent: unlike hooks (many independent commands can
+    coexist), a project has at most one statusLine, so an existing one — even a different
+    command of the engineer's own — is left alone rather than partially overwritten field by
+    field the way a generic dict merge would. Silent when already set, like merge_hooks is when
+    nothing is missing: log entries double as the "did anything change" signal for the caller."""
+    if "statusLine" in target:
+        return
+    target["statusLine"] = value
+    log.append(f"settings: set statusLine from {source}: {value.get('command')}")
+
+
 def merge_value(target, fragment, source, log, path=""):
     for key, value in fragment.items():
         key_path = f"{path}.{key}" if path else key
         if key_path == "hooks":
             merge_hooks(target, value, source, log)
+        elif key_path == "statusLine":
+            merge_status_line(target, value, source, log)
         elif isinstance(value, dict):
             child = target.setdefault(key, {})
             if not isinstance(child, dict):
@@ -261,7 +279,9 @@ def install_settings(root, layers, dry_run, log):
         fragment = load_json(path)
         if path == CORE_FRAGMENT:
             externals_name = os.path.basename(os.path.dirname(layers[0][1]))
-            fragment = json.loads(json.dumps(fragment).replace(EXTERNALS, externals_name))
+            core_abs = layers[0][1].replace(os.sep, "/")
+            fragment = json.loads(json.dumps(fragment).replace(EXTERNALS, externals_name)
+                                  .replace(CORE_ABS_PLACEHOLDER, core_abs))
         merge_value(settings, fragment, source, log)
     if json.dumps(settings, sort_keys=True) == before or dry_run:
         return

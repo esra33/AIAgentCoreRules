@@ -2,6 +2,7 @@
 signatures, attributes, member lookup in `where`, `show`, `members --inherited`, `attributed`,
 and usages' per-line references. Parser tests run on strings; CLI tests on a tiny synthetic
 Unity project like test_smoke's."""
+import json
 import shutil
 import subprocess
 import sys
@@ -108,6 +109,35 @@ USER = """namespace Demo
 }
 """
 
+DEPS = """namespace Demo
+{
+    public class EventBus
+    {
+    }
+
+    public class Logger
+    {
+    }
+
+    public class Subscriber
+    {
+        private readonly List<EventBus> _buses;
+        private Logger _logger;
+
+        public Subscriber(Logger logger, List<EventBus> buses)
+        {
+            _logger = logger;
+            _buses = buses;
+        }
+
+        public EventBus Resolve(int id)
+        {
+            return _buses[0];
+        }
+    }
+}
+"""
+
 
 def run(script, root, *args):
     return subprocess.run([sys.executable, str(TOOL_DIR / script), "--project", str(root), *args],
@@ -157,6 +187,81 @@ class ParserTests(unittest.TestCase):
             self.assertNotIn("InternalsVisibleTo", [name for name, _ in t.attributes])
 
 
+TYPE_REFS_SRC = """namespace Demo
+{
+    public class Widget
+    {
+        private readonly List<GemEvent> _events;
+        private LazyService<IFoo> _lazy;
+        private GemEvent[] _grid;
+        private int _count;
+
+        public Widget(IPrizeManager prizeManager, List<GemEvent> events)
+        {
+        }
+
+        public async Task<bool> FetchEvents(int id, string key, IEventManager manager)
+        {
+            return true;
+        }
+
+        public TResult Generic<TResult>(TResult seed)
+        {
+            return seed;
+        }
+    }
+}
+"""
+
+
+class TypeRefTests(unittest.TestCase):
+    """Field/property/param/return type dependency extraction (type_ref), declaration-level
+    only: a known collection/array wrapper unwraps to its argument (is_collection=1); any
+    other generic keeps its own outer name; primitives and generic placeholders (T, TResult)
+    are dropped entirely."""
+
+    def setUp(self):
+        types = SourceParser().parse("Widget.cs", TYPE_REFS_SRC)
+        widget = {t.name: t for t in types}["Widget"]
+        self.members = {m.name: m for m in widget.members if m.kind != "ctor"}
+        self.ctor = next(m for m in widget.members if m.kind == "ctor")
+
+    def test_field_of_known_container_unwraps_to_its_argument(self):
+        self.assertEqual(self.members["_events"].type_refs, [
+            {"name": "GemEvent", "raw": "GemEvent", "member_kind": "field",
+             "is_collection": 1, "position": None}])
+
+    def test_field_of_unknown_generic_keeps_its_own_name(self):
+        self.assertEqual(self.members["_lazy"].type_refs, [
+            {"name": "LazyService", "raw": "LazyService<IFoo>", "member_kind": "field",
+             "is_collection": 0, "position": None}])
+
+    def test_array_field_is_flagged_a_collection(self):
+        self.assertEqual(self.members["_grid"].type_refs, [
+            {"name": "GemEvent", "raw": "GemEvent", "member_kind": "field",
+             "is_collection": 1, "position": None}])
+
+    def test_primitive_field_has_no_type_refs(self):
+        self.assertEqual(self.members["_count"].type_refs, [])
+
+    def test_ctor_params_are_uses_edges_in_declared_order(self):
+        self.assertEqual(self.ctor.type_refs, [
+            {"name": "IPrizeManager", "raw": "IPrizeManager", "member_kind": "param",
+             "is_collection": 0, "position": 0},
+            {"name": "GemEvent", "raw": "GemEvent", "member_kind": "param",
+             "is_collection": 1, "position": 1}])
+
+    def test_method_return_and_params_mix_with_primitive_filtering(self):
+        self.assertEqual(self.members["FetchEvents"].type_refs, [
+            {"name": "Task", "raw": "Task<bool>", "member_kind": "return",
+             "is_collection": 0, "position": None},
+            {"name": "IEventManager", "raw": "IEventManager", "member_kind": "param",
+             "is_collection": 0, "position": 2}])
+
+    def test_generic_placeholder_names_are_filtered(self):
+        self.assertEqual(self.members["Generic"].type_refs, [])
+
+
 class LookupCliTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="unity-tools-lookup-"))
@@ -166,6 +271,7 @@ class LookupCliTests(unittest.TestCase):
         scripts.mkdir(parents=True)
         (scripts / "Shapes.cs").write_text(SHAPES)
         (scripts / "User.cs").write_text(USER)
+        (scripts / "Deps.cs").write_text(DEPS)
         (self.root / "Assembly-CSharp.csproj").write_text(CSPROJ)
 
     def tearDown(self):
@@ -236,6 +342,23 @@ class LookupCliTests(unittest.TestCase):
         self.assertIn("more", out)
         out = self.ok("usages.py", "_shape", "--full")
         self.assertNotIn("more", out)
+
+    def test_uses_prints_outgoing_field_and_param_type_refs(self):
+        out = self.ok("codeindex.py", "uses", "Subscriber")
+        self.assertIn("aggregation", out)
+        self.assertIn("Logger", out)
+        self.assertIn("EventBus", out)
+        self.assertIn("uses", out)
+
+    def test_uses_incoming_finds_referencing_types(self):
+        out = self.ok("codeindex.py", "uses", "Logger", "--incoming")
+        self.assertIn("Subscriber", out)
+
+    def test_uses_json_reports_is_collection_for_a_known_container(self):
+        out = self.ok("codeindex.py", "uses", "Subscriber", "--json")
+        rows = json.loads(out)
+        events = next(r for r in rows if r["name"] == "EventBus" and r["member_kind"] == "field")
+        self.assertEqual(events["is_collection"], 1)
 
 
 if __name__ == "__main__":

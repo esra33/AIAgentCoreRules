@@ -4,6 +4,8 @@
 
 State changes in this phase use the shared feature-state CLI described in index.md.
 Progress Markdown is generated; references to writing its fields mean tool operations.
+If `feature_state.py` is being called this phase and `Processes/FeatureState.md` has not been
+read yet this session, read it first — do not guess the tool's path or flags.
 
 
 Goal: Write code file-by-file following the approved design. Present each file to the engineer before moving to the next.
@@ -66,6 +68,47 @@ authorize staging, committing or pushing changes.
 
 ---
 
+## Task Table Proposal
+
+Before `/publish-batch plan` ever runs for a task, propose the whole task's file list in one
+table — not yet split into batches — so the engineer can review the shape of the work before
+committing to a batch split.
+
+```yaml
+task_table:
+  when:     "At the start of each task (the TDD '#' column id, e.g. T3), before any batch plan exists for it."
+  format:   "One Markdown table, never bullets or numbered lists. Columns: Type/File | Why change (TLDR) | How changes (TLDR) | Est. change size (lines). One row per file the task's TDD design touches."
+  source:   "The task's TDD design/File Plan — the same file list /publish-batch plan would otherwise split directly into batches. Estimate lines the way the batch plan table does (prefixed ~) until a file exists."
+  qa:       "The engineer may ask for more detail on any row; answer inline from the TDD/design. No state write for this."
+  proceed:  "Once the engineer asks to divide the work into batches, hand off to /publish-batch plan (unchanged) — the batch split must cover exactly this table's file set."
+  no_generation: "This step never runs or queues a StateV3 (or any other) code-generation sequence, even for a new/changed IPlayerData root — that stays engineer-initiated."
+```
+
+Once the engineer stops asking questions and the table is final, persist it and mark the task
+reviewed:
+
+```
+python3 Tools/feature-state/feature_state.py artifact <feature_dir> \
+  --payload '{"role": "task_<id>_plan", "path": "<FeatureName>_Task<id>_Plan.md"}' \
+  --revision <N>
+
+python3 Tools/feature-state/feature_state.py task <feature_dir> \
+  --payload '{"id": "<id>", "title": "<task title>", "status": "todo", "table_approved": true}' \
+  --revision <N>
+```
+
+Both are existing operations (`artifact`, `task`); `table_approved` is the only new field,
+added with merge semantics so no other task field is touched.
+
+`resume-work`'s restate step reports `checkpoint.in_flight`/`next`, not `tasks[]` directly, so
+this stage must still be reflected there like any other Phase 4 step: as soon as the table is
+posted, set the Checkpoint's `in_flight` to "`<id>`: full-task table awaiting engineer review."
+Once `table_approved` is recorded, set `next` to "`/publish-batch plan <FeatureName> <id>`" and
+clear `in_flight` — otherwise a resumed session reports a stale or generic next action instead
+of picking up exactly here.
+
+---
+
 ## Batched Publishing
 
 C# and related files (`.cs`, `.asmdef`, generated parsers, config JSON) are published per task
@@ -74,7 +117,7 @@ Python tools, Markdown and agent metadata are exempt.
 
 ```yaml
 batched_publishing:
-  start_task:  "/publish-batch plan — a worktree and branch per task (feature/<FeatureName>/<task_id>, from the engineer's user branch) and a batch plan the engineer approves."
+  start_task:  "/publish-batch plan — run after the Task Table Proposal above is approved; a worktree and branch per task (feature/<FeatureName>/<task_id>, from the engineer's user branch) and a batch plan the engineer approves."
   per_batch:
     - "Write the batch's files with the Per-File Checklist above (cslint clean per file); then one /audit over the batch's files. typecheck.py passes."
     - "/publish-batch publish — commit, push, open a PR against the user branch, and output the change table (Change | File · Type | What changed | Why) for every file added, modified or removed."

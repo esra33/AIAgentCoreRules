@@ -31,6 +31,7 @@ the larger one, or by picking the more impressive one.
 ```yaml
 pre_generation:
   - "[CTX] Inventory every interface, class, enum, and base type the solution requires. Confirm each is present in context."
+  - "[CTX] Before reading a whole file — or grepping a declared C# type/member — just to learn its shape, run one codeindex.py / code-graph /api/type query first."
   - "[SIG] Locate every property, method, and field you intend to use in the provided source text."
   - "[BEHAV] Every runtime behaviour the code relies on (copy vs reference, platform support, accepted formats, argument order) is grounded, not assumed."
   - "[SO]  Verify Unity ScriptableObjects use CreateInstance<T>(), never new T()."
@@ -115,6 +116,6 @@ tokens on their own, before counting what they compounded into.
 ```yaml
 tool_output:
   - "[TRIM] Default to the minimum output needed to answer the question — pipe through tail/grep/head, use Read with limit/offset, summarize a test run's pass/fail counts instead of pasting the full log."
-  - "[TRIM] Multi-round exploratory or trial-and-error work (browser automation probing, iterative debug scripts, anything that needs several retries to get right) belongs in a fork, not the main thread — see [[MetaRouter]]'s [DELEGATE]. Only the final working script and its conclusion need to come back."
+  - "[TRIM] Multi-round exploratory or trial-and-error work (browser automation probing, iterative debug scripts, anything that needs several retries to get right) belongs in a fork, not the main thread — see [[MetaRouter]]'s [DELEGATE] section for what should come back from it."
   - "[TRIM] Verbosity is fine when the engineer asks for it, or when the raw output is itself the deliverable (a diff under review, a stack trace being diagnosed)."
 ```

@@ -203,6 +203,7 @@ PAGE_TEMPLATE = """<!doctype html>
 
   function batchHtml(batch) {{
     if (!batch) return '';
+    if (batch.table_approved) return ' <span class="pill batch" title="Task Table Proposal approved; batch plan not yet split">table approved · batches pending</span>';
     if (batch.done) return ' <span class="pill batch done">batches done (' + batch.total + ')</span>';
     const pr = batch.open_pr == null ? '' : ' · ' + (batch.open_pr_url
       ? '<a href="' + escapeHtml(batch.open_pr_url) + '" target="_blank" rel="noopener">#' + escapeHtml(batch.open_pr) + '</a>'
@@ -470,6 +471,17 @@ PERF_CSS = """
   .perf-scope { display: inline-flex; border: 1px solid #333944; border-radius: 6px; overflow: hidden; margin: 10px 0 0; }
   .perf-scope button { background: none; border: 0; color: #9aa3b5; font: inherit; font-size: 13px; padding: 4px 12px; cursor: pointer; }
   .perf-scope button.on { background: #333944; color: #fff; }
+  .perf-limit { margin: 8px 0; }
+  .perf-limit .row { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+  .perf-limit .row .pct { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .perf-limit .bar { height: 8px; border-radius: 4px; background: #333944; overflow: hidden; margin-top: 3px; }
+  .perf-limit .bar span { display: block; height: 100%; background: var(--s1); }
+  .perf-limit.high .bar span { background: var(--warn); }
+  .perf-context { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; margin: 6px 0 10px; }
+  .perf-context-grid { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 13px;
+                        line-height: 1.3; letter-spacing: 1px; color: #e4e6eb; }
+  .perf-context-meta .model { color: #fff; font-weight: 600; }
+  .perf-context-meta .tokens { font-variant-numeric: tabular-nums; }
 """
 
 PERF_SCRIPT = """
@@ -594,6 +606,27 @@ PERF_SCRIPT = """
       + (live ? 'context ' + perfCompact(session.last_context) : 'peak ' + perfCompact(session.peak_context)) + '</span>';
   }
 
+  // /context-style gauge for an active session's last call (perf_view's context_window, via
+  // token_breakdown.context_window_usage). Two zones only -- used / free -- since no hook exposes
+  // /context's own autocompact-buffer reservation; "max" is a configured per-model assumption
+  // (token_breakdown.CONTEXT_WINDOW_TOKENS), not read from the session.
+  function perfContextGrid(session) {
+    const cw = session.context_window;
+    if (!cw) return '';
+    const total = 100;
+    const filled = Math.max(0, Math.min(total, Math.round(cw.share * total)));
+    const rows = [];
+    for (let r = 0; r < total; r += 10) {
+      const cells = [];
+      for (let c = r; c < r + 10; c++) cells.push(c < filled ? "⛁" : "⛶");
+      rows.push('<div>' + cells.join(" ") + '</div>');
+    }
+    return '<div class="perf-context"><div class="perf-context-grid">' + rows.join("") + '</div>'
+      + '<div class="perf-context-meta"><div class="model">' + escapeHtml(cw.model) + '</div>'
+      + '<div class="tokens" title="Max tokens is a configured assumption (token_breakdown.CONTEXT_WINDOW_TOKENS), not read from the session">'
+      + perfCompact(cw.used) + '/' + perfCompact(cw.max) + ' tokens (' + Math.round(cw.share * 100) + '%)</div></div></div>';
+  }
+
   function perfSession(session, colors) {
     const when = (session.started_at || "").slice(0, 16).replace("T", " ");
     const parts = ['<details class="perf-session' + (session.active ? ' active' : '') + '" data-key="' + escapeHtml(session.folder) + '"'
@@ -603,6 +636,7 @@ PERF_SCRIPT = """
       + (session.lane ? '<span class="perf-pill">' + escapeHtml(session.lane) + '</span>' : '')
       + perfContextPill(session)
       + '<span class="total">' + (session.usage.total != null ? perfCompact(session.usage.total) : session.compiled ? perfCompact(session.total) : '–') + '</span></summary>'];
+    parts.push(perfContextGrid(session));
     parts.push(perfUsage(session.usage));
     if (!session.compiled) {
       parts.push('<div class="empty">Token breakdown not compiled' + (session.error ? ': ' + escapeHtml(session.error) : ' yet') + '.</div>');
@@ -611,6 +645,7 @@ PERF_SCRIPT = """
         + perfPercent(session.total ? session.standardized / session.total : 0) + ' &middot; compiled '
         + escapeHtml((session.compiled_at || "").slice(0, 16).replace("T", " ")) + ' &middot; ' + escapeHtml(session.folder) + '</div>');
       parts.push(perfStack(session.categories, colors));
+      if (session.context_window) parts.push('<div class="meta">Estimated usage by category</div>');
       parts.push(perfCategoryTable(session.categories, colors, false));
       const d = session.doc_review;
       if (d && (d.count || d.miro_confluence.count)) {
@@ -639,6 +674,43 @@ PERF_SCRIPT = """
       + 'Used: measured Miro/Confluence MCP calls in ' + d.miro_confluence.sessions + ' session(s).</div>';
   }
 
+  // Current usage (perf_view.current_usage): plan rate_limits from the statusline capture, and token burn.
+  function perfCurrent(current, tile) {
+    if (!current) return '';
+    const plan = current.plan;
+    const parts = ['<h2>Current usage</h2>'];
+    if (!plan) {
+      parts.push('<div class="empty">Plan limits unavailable: no capture yet. Set up the status line once — '
+        + '<code>python3 &lt;core&gt;/Tools/setup/install.py install</code> adds it automatically (skips it if '
+        + 'you already have one of your own), or add it by hand per Tools/session-lifecycle/README.md. '
+        + 'Needs a Pro or Max plan; starts showing after your next reply in any session.</div>');
+    } else {
+      const age = Math.round(plan.age_seconds / 60);
+      parts.push('<div class="meta">Plan limits, captured ' + (age < 1 ? 'just now' : age + ' min ago')
+        + (plan.stale ? ' (stale: no reply with the status line since)' : '') + '</div>');
+      if (!plan.windows.length) parts.push('<div class="empty">Every captured window has reset since.</div>');
+      plan.windows.forEach((w) => {
+        const pct = Math.max(0, Math.min(100, w.used_percentage));
+        const reset = w.resets_at ? 'resets ' + new Date(w.resets_at * 1000).toLocaleString(undefined,
+          {weekday: 'short', hour: '2-digit', minute: '2-digit'}) : '';
+        const usd = w.used_usd != null && w.limit_usd != null ? ' &middot; $' + Number(w.used_usd).toFixed(2) + ' of $'
+          + Number(w.limit_usd).toFixed(0) + (w.period ? ' ' + escapeHtml(w.period) : '') : '';
+        parts.push('<div class="perf-limit' + (pct >= 80 ? ' high' : '') + '"><div class="row"><span>' + escapeHtml(w.label)
+          + ' limit <span class="meta">' + reset + usd + '</span></span><span class="pct">' + pct.toFixed(0) + '%</span></div>'
+          + '<div class="bar"><span style="width:' + pct + '%"></span></div></div>');
+      });
+    }
+    const burn = current.burn;
+    if (burn) {
+      parts.push('<div class="perf-tiles">' + burn.windows.map((w) => tile(escapeHtml(w.label), perfCompact(w.tokens)
+        + ' <span class="meta">' + w.calls + ' calls</span>')).join('')
+        + tile("Active sessions", String(burn.active_sessions)) + '</div>');
+      parts.push('<div class="meta">Token burn: context + output of every model call in tracked sessions, '
+        + 'subagents included (the same unit as below). Plan limits are measured by the service, not from these tokens.</div>');
+    }
+    return parts.join('');
+  }
+
   // Per tab: "feature" (only the served feature's sessions) or "all". Kept across live refreshes.
   const perfScopes = {};
 
@@ -663,8 +735,8 @@ PERF_SCRIPT = """
         + escapeHtml(model.root) + '</div>'
         + (model.feature ? perfScopeToggle(model, scope)
           + '<div class="meta">Feature sessions: tagged with set --feature, or listed under sessions: in the Progress file.</div>' : '')
-        + perfContextWarning(model),
-        '<div class="perf-tiles">' + tile("Sessions", o.compiled + (o.sessions > o.compiled ? ' <span class="meta">/ ' + o.sessions + '</span>' : ''))
+        + perfContextWarning(model) + perfCurrent(model.current, tile),
+        '<h2>Sessions overview</h2><div class="perf-tiles">' + tile("Sessions", o.compiled + (o.sessions > o.compiled ? ' <span class="meta">/ ' + o.sessions + '</span>' : ''))
           + tile("Total tokens", perfCompact(o.total)) + tile("Average / session", perfCompact(o.mean))
           + tile("Median", perfCompact(o.median)) + tile("Std deviation", perfCompact(o.stdev))
           + tile("Context warning at", model.context_warning && model.context_warning.threshold != null

@@ -85,6 +85,29 @@ class ProjectPreviewTests(unittest.TestCase):
         refreshed = next(phase for phase in source('Alpha')['phases'] if phase['key'] == '6_integration')['integration_checklist']
         self.assertEqual((refreshed['completed'], refreshed['remaining'], refreshed['current_id']), (1, 0, None))
 
+    def test_fourDiagramRoles_eachResolvesToItsOwnTab(self):
+        directory = self.root / 'Alpha'
+        (directory / 'Diagrams').mkdir()
+        names = {
+            'framework_class_diagram': '01a_FrameworkClassDiagram.mmd',
+            'concrete_class_diagram': '01b_ConcreteClassDiagram.mmd',
+            'flow_diagram': '02_FlowDiagram.mmd',
+            'life_cycle_diagram': '03_LifeCycleDiagram.mmd',
+        }
+        for role, name in names.items():
+            (directory / 'Diagrams' / name).write_text(f'%% {role}')
+        state = project_server.feature_state.load_state(directory)
+        for role, name in names.items():
+            state['artifact_roles'][role] = f'Diagrams/{name}'
+        (directory / 'state.json').write_text(json.dumps(state))
+        tabs = {tab['title']: tab for tab in project_server.project_tabs(self.root, directory)}
+        for title, role in (('Framework Class Diagram', 'framework_class_diagram'),
+                             ('Concrete Class Diagram', 'concrete_class_diagram'),
+                             ('Flow Diagram', 'flow_diagram'),
+                             ('Life Cycle Diagram', 'life_cycle_diagram')):
+            self.assertEqual(tabs[title]['file'], f'Diagrams/{names[role]}')
+            self.assertEqual(tabs[title]['kind'], 'mmd')
+
     def test_rejectsFeatureAndArtifactTraversal(self):
         with self.assertRaises(ValueError):
             project_server.feature_path(self.root, '../Elsewhere')

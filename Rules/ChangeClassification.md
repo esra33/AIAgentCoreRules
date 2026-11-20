@@ -112,6 +112,48 @@ time; no values changed.)
 
 ---
 
+## Diagram types and naming
+
+A feature's `Diagrams/*.mmd` can hold up to four diagram types, each its own `.mmd` file, its
+own artifact role (`Tools/feature-state/feature_state.py`'s `artifact_roles`), and its own tab
+in the local preview (`Tools/doc-review/project_server.py`'s `TITLES`/`ROLES`). Name new
+diagrams this way — the first time this is written down as a forward convention, not just a
+legacy-alias list:
+
+```yaml
+diagram_types:
+  framework_class_diagram:
+    file:    "01a_FrameworkClassDiagram.mmd"
+    syntax:  "mermaid classDiagram"
+    shows:   "Abstract/interface/base types the feature's own types extend or implement, plus unchanged framework types shown only for context."
+    colors:  "This file's 3(+1)-color NEW/MODIFIED/DELETED/existingStyle scheme — existingStyle is the common case here."
+  concrete_class_diagram:
+    file:    "01b_ConcreteClassDiagram.mmd"
+    syntax:  "mermaid classDiagram"
+    shows:   "Only the feature's own concrete NEW/MODIFIED/DELETED types — no abstract/framework context (that's the diagram above)."
+    colors:  "Same 3-color scheme; existingStyle is rare here by construction."
+  flow_diagram:
+    file:    "02_FlowDiagram.mmd"
+    syntax:  "mermaid flowchart"
+    shows:   "Process/control flow — unchanged, see Scope above."
+    colors:  "The general/decision/terminator/failure palette above, not this scheme."
+  life_cycle_diagram:
+    file:    "03_LifeCycleDiagram.mmd"
+    syntax:  "mermaid stateDiagram-v2"
+    shows:   "The states a key object or record moves through over its lifetime, and the transitions between them (e.g. created -> active -> forgiven -> cleared)."
+    colors:  "No classDef scheme — stateDiagram-v2's default styling. Decided against inventing one: no diagram in this repo uses stateDiagram-v2 yet, and classDef/class support for it varies by mermaid-cli version. Name any terminal state in one line of prose next to the diagram instead of a colored legend."
+```
+
+A feature with only the historical single class diagram (pre-dating this split) still works:
+`legacy_migration.py` maps its old filenames (`01_ClassStructure.mmd`, `01_ClassDiagram.mmd`)
+to `framework_class_diagram` — that single diagram already mixed framework context with the
+feature's own types, which is what `framework_class_diagram` alone also allows. Splitting its
+concrete types out into a separate `01b_ConcreteClassDiagram.mmd` is optional, done when the
+framework diagram gets crowded enough that the split earns its own tab, not required for every
+feature.
+
+---
+
 ## File/type list format
 
 Used in a TDD's **Architecture** section (Phase 1, type-level — exact paths may still be TBD,
@@ -127,34 +169,49 @@ Data Reconciliation when a feature has nothing to say there):
 ### 🔴 Deleted
 ```
 
-Each item gets exactly this shape — three lines visible, anything beyond that collapsed:
+Each item gets exactly this shape — a short TLDR visible, everything else collapsed:
 
 ```markdown
 #### `TypeOrFileName`
-- **Nature:** one line — what kind of change (new class, new interface, deleted file, …).
-- **Reason:** one line — why this change exists.
-- **Implementation:** 2–4 lines — concrete and checkable, not prose padding.
+TLDR — what this item is and why, scannable on its own with no need to expand.
 
 <details>
 <summary>More detail</summary>
 
-(anything beyond the three lines above: deeper rationale, edge cases, gotchas, code sketches)
+- **Nature:** one line — what kind of change (new class, new interface, deleted file, …).
+- **Reason:** one line — why this change exists.
+- **Implementation:** 2–4 lines — concrete and checkable, not prose padding.
+
+(anything beyond Nature/Reason/Implementation: deeper rationale, edge cases, gotchas, code
+sketches)
 </details>
 ```
 
-Omit the `<details>` block entirely when there is nothing beyond the three lines — an empty
-collapsible is worse than no collapsible. The group heading is where the tag lives — don't repeat
-it on the item heading too (`#### 🟢 NEW — \`X\`` under `### 🟢 New` says the same thing twice).
+The TLDR is prose, not a fourth labeled field — it exists so the heading list alone is useful
+without expanding every item. Aim for ~5 lines or fewer; go longer only if the item genuinely
+needs it to stand on its own — this is a guideline, not a hard cap. Never omit the `<details>`
+block: unlike the old shape, Nature/Reason/Implementation now live inside it, so an item without
+one would have nothing but the TLDR. The group heading is where the tag lives — don't repeat it
+on the item heading too (`#### 🟢 NEW — \`X\`` under `### 🟢 New` says the same thing twice).
+
+`Tools/doc-review/progress_view.py` tracks a TDD's drafted/approved status by diffing each
+heading's whitespace-collapsed body against the template's placeholder text — it does not parse
+the Nature/Reason/Implementation sub-structure, so moving those fields inside the collapsible is
+safe for that tool. A template and a real TDD must still move together: re-verify this against
+the current `progress_view.py` before relying on it again, since tooling can change after this
+note is written.
 
 ### File Plan table
 
 The existing `| Task | Path | New / Modified | Responsibility |` table's third column becomes
-`Change`, using the same tags (adds Deleted, which the table never supported):
+`Change`, using the same tags (adds Deleted, which the table never supported). A fifth column,
+`Use Cases`, cross-references the use-case ids (see [[Phase1_Intake]]'s `id_convention`) the
+task's change exists to satisfy — optional, blank for a task with no specific use case:
 
 ```markdown
-| Task | Path | Change | Responsibility |
-|---|---|---|---|
-| T1 | relative/path/FileName.cs | 🟢 New | one-line description |
+| Task | Path | Change | Responsibility | Use Cases |
+|---|---|---|---|---|
+| T1 | relative/path/FileName.cs | 🟢 New | one-line description | SlimF8-F11 |
 ```
 
 ---

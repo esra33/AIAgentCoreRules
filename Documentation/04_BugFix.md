@@ -3,12 +3,15 @@
 From a symptom to a verified fix with a regression test. Investigation here is a means to a
 fix, not a deliverable — for "should we change X" questions with no bug, use [[06_Investigation|Investigation Mode]].
 
+Agents this lane spawns (Explore agents, fan-out) default to `model: haiku`, unless the step
+they come from pins its own model (for example `/audit` stays `sonnet`).
+
 ## Steps
 
 | # | Step | What happens |
 |---|---|---|
 | 1 | **Symptom** | Restate expected vs actual, repro steps, frequency, build/platform and first-seen version. The agent asks only for what is missing. |
-| 2 | **Context** | Read the host project's Systems entry for every system on the failing path (its common gotchas first) before searching its source. A system implicated later, by a survey or a hypothesis, has its entry read at that point, not at fix time. Locate the flow with the host's code-index and usages tools (`codeindex.py`, `usages.py`); wider surveys go to an Explore agent. Check recent commits on the failing path since the first-seen build: a sibling fix may already explain the bug, or be missing from the reported build. For a crash report, read the full native trace (Android tombstone, iOS full crash log), not the summary stacktrace: summary exports cut the crashing thread off at about 64 frames and can drop the managed method names, so the real cycle and its depth only show in the full trace. |
+| 2 | **Context** | Read the host project's Systems entry for every system on the failing path (its common gotchas first) before searching its source. A system implicated later, by a survey or a hypothesis, has its entry read at that point, not at fix time. Locate the flow with the host's code-index and usages tools (`codeindex.py`, `usages.py`); wider surveys go to an Explore agent at `model: haiku`. Check recent commits on the failing path since the first-seen build: a sibling fix may already explain the bug, or be missing from the reported build. For a crash report, read the full native trace (Android tombstone, iOS full crash log), not the summary stacktrace: summary exports cut the crashing thread off at about 64 frames and can drop the managed method names, so the real cycle and its depth only show in the full trace. |
 | 3 | **Hypotheses** | Read the method bodies on the failing path; every claim carries `file:line`. Rank 1–3 hypotheses, each with its evidence, what would confirm it and what would rule it out. Check the cheapest confirming evidence first. |
 | 4 | **Diagnosis gate** | Present the root cause (or top hypothesis and confidence), the proposed fix, the blast radius and the planned regression test. **No code before the engineer confirms.** |
 | 4b | **Fresh session (offered)** | If the session is past about 8 turns, the agent offers to do the fix in a new session, because long sessions make every fix step re-read the whole diagnosis. On yes, it writes `bugfix_handoff.md` in the session folder (root cause, approved fix, files, blast radius, planned test, systems already read, rejected hypotheses), runs `/end-session` for the diagnosis, and prints the command that starts the new session at step 5. |

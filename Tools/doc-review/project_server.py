@@ -17,8 +17,8 @@ import feature_state
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'setup'))
 import project_config
 
-TITLES = ('Home', 'Plan', 'TDD', 'GDD', 'Class Diagram', 'Flow Diagram', 'LLM Performance')
-ROLES = ('plan', 'tdd', 'gdd', 'class_diagram', 'flow_diagram', 'performance')
+TITLES = ('Home', 'Plan', 'TDD', 'GDD', 'Framework Class Diagram', 'Concrete Class Diagram', 'Flow Diagram', 'Life Cycle Diagram', 'LLM Performance')
+ROLES = ('plan', 'tdd', 'gdd', 'framework_class_diagram', 'concrete_class_diagram', 'flow_diagram', 'life_cycle_diagram', 'performance')
 
 
 def feature_path(root, name):

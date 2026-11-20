@@ -17,6 +17,7 @@ Usage
   codeindex.py implementers <Interface>     types whose base list names it
   codeindex.py subclasses <Base> [--direct] transitive by default
   codeindex.py bases <Type>                 what it inherits / implements
+  codeindex.py uses <Type> [--incoming]     field/property/param/return type_ref edges
   codeindex.py members <Type> [--kind method] [--inherited]
   codeindex.py attributed <Attribute>       types and members carrying [Attribute]
   codeindex.py types [--assembly A] [--namespace N] [--kind interface]
@@ -29,7 +30,9 @@ answer from stale data. Pass --no-auto-build to inspect a snapshot deliberately.
 
 Scope: DECLARATIONS ONLY. This does not resolve names or index call sites. Base types
 are matched by simple name, and ambiguity is reported rather than guessed at. For "who
-calls this member" use usages.py; for "does it compile" use typecheck.py.
+calls this member" use usages.py; for "does it compile" use typecheck.py. `uses` is the
+same declaration-level boundary: field/property/param/return *type* dependencies, not
+call sites.
 """
 
 import argparse
@@ -45,7 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _csparse import SourceParser  # noqa: E402
 from _unityproj import Project, ProjectError, find_project_root, main_checkout_of  # noqa: E402
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -118,6 +121,23 @@ CREATE TABLE IF NOT EXISTS attribute(
     raw       TEXT NOT NULL
 );
 
+-- A field/property/param/return type dependency, declaration-level only (no method-body
+-- or call-site analysis -- see usages.py for that, lexical and unindexed). member_kind
+-- 'field'/'property' -> relation 'aggregation'; 'param'/'return' -> relation 'uses'.
+-- name is the referenced type's simple name after unwrapping a known collection/array
+-- wrapper (is_collection=1) to its type argument; raw is the type text as written.
+CREATE TABLE IF NOT EXISTS type_ref(
+    id            INTEGER PRIMARY KEY,
+    owner_id      INTEGER NOT NULL REFERENCES type(id)   ON DELETE CASCADE,
+    member_id     INTEGER NOT NULL REFERENCES member(id) ON DELETE CASCADE,
+    member_kind   TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    raw           TEXT NOT NULL,
+    relation      TEXT NOT NULL,
+    is_collection INTEGER NOT NULL DEFAULT 0,
+    position      INTEGER
+);
+
 CREATE INDEX IF NOT EXISTS ix_attr_name     ON attribute(name);
 CREATE INDEX IF NOT EXISTS ix_type_name     ON type(name);
 CREATE INDEX IF NOT EXISTS ix_type_file     ON type(file_id);
@@ -126,6 +146,8 @@ CREATE INDEX IF NOT EXISTS ix_base_type     ON base_ref(type_id);
 CREATE INDEX IF NOT EXISTS ix_member_type   ON member(type_id);
 CREATE INDEX IF NOT EXISTS ix_member_name   ON member(name);
 CREATE INDEX IF NOT EXISTS ix_file_assembly ON file(assembly_id);
+CREATE INDEX IF NOT EXISTS ix_typeref_name  ON type_ref(name);
+CREATE INDEX IF NOT EXISTS ix_typeref_owner ON type_ref(owner_id);
 """
 
 EXAMPLES = """
@@ -154,6 +176,16 @@ SELECT t.name, m.name AS member, x.raw, f.path, COALESCE(m.line, t.line) AS line
 -- Async methods that return void (a common bug source)
 SELECT t.name, m.name, m.signature FROM member m JOIN type t ON t.id = m.type_id
  WHERE m.is_async = 1 AND m.signature LIKE '%async void%';
+
+-- Every declared field/property/param/return type referencing GemEvent
+SELECT t.name AS owner, m.name AS member, r.member_kind, r.relation, r.raw, f.path
+  FROM type_ref r JOIN type t ON t.id = r.owner_id
+  JOIN member m ON m.id = r.member_id
+  JOIN file f ON f.id = t.file_id
+ WHERE r.name = 'GemEvent';
+
+-- Types with the most incoming aggregation edges (most "had" by other types)
+SELECT name, COUNT(*) n FROM type_ref WHERE relation = 'aggregation' GROUP BY name ORDER BY n DESC LIMIT 20;
 """
 
 TYPE_SELECT = """
@@ -221,7 +253,8 @@ class CodeIndex:
             "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
         if row is None or row["value"] == SCHEMA_VERSION:
             return
-        for table in ("attribute", "member", "base_ref", "type", "file", "assembly", "meta"):
+        for table in ("type_ref", "attribute", "member", "base_ref", "type", "file",
+                      "assembly", "meta"):
             self.conn.execute("DROP TABLE IF EXISTS %s" % table)
         self.conn.executescript(SCHEMA)
         self.conn.commit()
@@ -429,6 +462,7 @@ class CodeIndex:
                      for pos, (simple, raw) in enumerate(decl.bases)])
 
                 attributes = [(type_id, None, name, raw) for name, raw in decl.attributes]
+                type_refs = []
                 for m in decl.members:
                     member_id = self.conn.execute(
                         "INSERT INTO member(type_id, name, kind, signature, line, end_line, "
@@ -439,9 +473,18 @@ class CodeIndex:
                          m.is_async)).lastrowid
                     attributes.extend((type_id, member_id, name, raw)
                                       for name, raw in m.attributes)
+                    type_refs.extend(
+                        (type_id, member_id, ref["member_kind"], ref["name"], ref["raw"],
+                         "uses" if ref["member_kind"] in ("param", "return") else "aggregation",
+                         ref["is_collection"], ref["position"])
+                        for ref in m.type_refs)
                 self.conn.executemany(
                     "INSERT INTO attribute(type_id, member_id, name, raw) VALUES(?,?,?,?)",
                     attributes)
+                self.conn.executemany(
+                    "INSERT INTO type_ref(owner_id, member_id, member_kind, name, raw, "
+                    "relation, is_collection, position) VALUES(?,?,?,?,?,?,?,?)",
+                    type_refs)
                 report.members += len(decl.members)
 
         for key, value in (("schema_version", SCHEMA_VERSION),
@@ -529,6 +572,30 @@ class CodeIndex:
              WHERE d.depth > 0 %s
              ORDER BY d.depth, t.name
         """ % self._scope(), (name,))
+
+    def uses_of(self, name):
+        """Outgoing type_ref edges: what `name`'s own fields/properties/params/returns
+        reference. relation is 'aggregation' for field/property, 'uses' for param/return."""
+        return self._rows(
+            "SELECT r.member_kind, r.name, r.raw, r.relation, r.is_collection, r.position, "
+            "       m.name AS member, f.path AS file, m.line "
+            "  FROM type_ref r JOIN type t ON t.id = r.owner_id "
+            "  JOIN member m ON m.id = r.member_id "
+            "  JOIN file f ON f.id = t.file_id "
+            " WHERE t.name = ?" + self._scope() + " ORDER BY f.path, m.line, r.position",
+            (name,))
+
+    def used_by_of(self, name):
+        """Incoming type_ref edges: other types whose fields/properties/params/returns
+        reference `name`."""
+        return self._rows(
+            "SELECT t.name AS owner, r.member_kind, r.raw, r.relation, r.is_collection, "
+            "       m.name AS member, f.path AS file, m.line "
+            "  FROM type_ref r JOIN type t ON t.id = r.owner_id "
+            "  JOIN member m ON m.id = r.member_id "
+            "  JOIN file f ON f.id = t.file_id "
+            " WHERE r.name = ?" + self._scope() + " ORDER BY f.path, m.line, r.position",
+            (name,))
 
     def members_of(self, name, kind=None):
         sql = MEMBER_SELECT + " WHERE t.name = ?"
@@ -732,6 +799,11 @@ def main():
     add("attributed").add_argument("name")
     add("bases").add_argument("name")
 
+    uses = add("uses")
+    uses.add_argument("name")
+    uses.add_argument("--incoming", action="store_true",
+                      help="who references `name`, instead of what `name` itself references")
+
     impl = add("implementers")
     impl.add_argument("name")
     impl.add_argument("--transitive", action="store_true")
@@ -828,6 +900,13 @@ def main():
                                                owner, row["raw"], row["signature"]))
         elif args.cmd == "bases":
             emit(index.bases_of(args.name), as_json, ["name", "raw", "position", "file"])
+        elif args.cmd == "uses":
+            if args.incoming:
+                emit(index.used_by_of(args.name), as_json,
+                     ["owner", "member_kind", "relation", "raw", "member", "file"])
+            else:
+                emit(index.uses_of(args.name), as_json,
+                     ["member_kind", "relation", "name", "raw", "member", "file"])
         elif args.cmd == "implementers":
             emit(index.implementers_of(args.name, direct=not args.transitive), as_json,
                  ["name", "kind", "namespace", "assembly", "file", "line"])

@@ -193,6 +193,24 @@ class BootstrapTests(unittest.TestCase):
         again = self.run_script("check")
         self.assertIn("up to date", again.stdout)
 
+    def test_install_sets_statusline_with_this_projects_absolute_core_path(self):
+        self.run_script("--metadata-location", "externals", "--defaults")
+        settings = json.loads((self.root / ".claude/settings.json").read_text())
+        expected = str(self.root / "GitIgnoredExternals/AIAgentCoreRules")   # the symlink path, not its target
+        self.assertEqual({"type": "command",
+                          "command": f"python3 {expected}/Tools/session-lifecycle/session_lifecycle.py statusline"},
+                         settings["statusLine"])
+
+    def test_install_never_overwrites_an_existing_statusline(self):
+        claude_dir = self.root / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text(json.dumps({"statusLine": {"type": "command", "command": "mine.sh"}}))
+        result = self.run_script("--metadata-location", "externals", "--defaults")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        settings = json.loads((claude_dir / "settings.json").read_text())
+        self.assertEqual({"type": "command", "command": "mine.sh"}, settings["statusLine"])
+        self.assertNotIn("statusLine", result.stdout)   # silent skip, like an already-present hook
+
     def test_install_from_the_core_checkout_itself_is_refused(self):
         result = self.run_script("check", cwd=CORE_ROOT)
         self.assertNotEqual(result.returncode, 0)

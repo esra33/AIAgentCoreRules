@@ -62,9 +62,30 @@ every folder, for one-off cleanup.
 | `hook-stop` | Stop, `async` | 30 | Throttled recompile after each reply |
 | `hook-stop-check` | Stop, sync | 20 | Blocks the stop once when a .cs file changed after the last `typecheck.py` run |
 | `hook-prompt` | UserPromptSubmit | 10 | Idle-gap cost note; context-size warning |
-| `hook-bash` | PreToolUse (`Bash`) | 10 | Read-not-cat reminder for rule files; codeindex/usages for a C# grep |
+| `hook-bash` | PreToolUse (`Bash`) | 10 | Read-not-cat reminder for rule and feature-doc files; codeindex/usages for a C# grep |
+| `hook-read` | PreToolUse (`Read`) | 10 | codeindex/code-graph reminder for a whole-file `.cs` Read with no `limit`/`offset` |
 | `hook-edit` | PreToolUse (`Edit\|Write`) | 30 | First .cs edit: typecheck baseline; every .cs edit: `last_cs_edit` |
+| `hook-agent` | PreToolUse (`Agent`) | 10 | Denies the spawn when the lane's `agent_model` rule (`LANE_AGENT_MODEL`) is set and the call's model doesn't match it |
 | `hook-lint` | PostToolUse (`Edit\|Write`) | 10 | `cslint.py` on the edited .cs file's changed lines |
+
+**Status line (optional).** `statusline` is a `statusLine` command, not a hook; `../setup/install.py
+install` sets it automatically — but only when the project has no `statusLine` at all, the same
+"add, never overwrite" rule merge_hooks uses for a hook command already present in an event — so an
+engineer's own status line is left alone. Claude Code pipes it JSON on every assistant message; for
+Pro/Max plans that includes `rate_limits` (`five_hour`, `seven_day`, `spend_limit`: `used_percentage`,
+`resets_at`). It saves the latest to `<sessions root>/plan_usage.json`, which the preview's
+Performance tab shows under **Current usage**, and prints e.g. `Opus · 5h 23% · 7d 41%`. Needs an
+absolute path to the project's own core checkout, not `$CLAUDE_PROJECT_DIR`: unlike hooks, the
+statusLine command's cwd and environment are undocumented, so `install.py` writes the real path
+(`CORE_ABS_PLACEHOLDER` in `settings.core.json`, substituted per project):
+
+```json
+"statusLine": {"type": "command",
+               "command": "python3 <project>/GitIgnoredExternals/AIAgentCoreRules/Tools/session-lifecycle/session_lifecycle.py statusline"}
+```
+
+To add it by hand instead (e.g. before the next `install.py` run, or in a project that will never
+run it), paste the snippet above with `<project>` replaced.
 
 **Typecheck and lint hooks.** On the session's first `.cs` edit inside a Unity project, `hook-edit`
 runs `typecheck.py --files <file>` on the still-untouched tree (~3-4 s) and hands the agent the

@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from feature_state import StateError, create_state, load_state, update_state
-from legacy_migration import migrate_feature, parse_legacy_yaml
+from legacy_migration import _import_artifacts, migrate_feature, parse_legacy_yaml
 
 
 class FeatureStateTests(unittest.TestCase):
@@ -213,6 +213,20 @@ Keep me exactly.
         update_state(self.directory, "checkpoint", {"checkpoint": {"next": "New work"}}, 1)
         self.assertEqual(migrate_feature(self.directory, True)["status"], "already_migrated")
         self.assertEqual(load_state(self.directory)["checkpoint"]["next"], "New work")
+
+    def test_import_artifacts_detects_all_four_diagram_roles(self):
+        (self.directory / "Diagrams").mkdir()
+        for name in ("01_ClassDiagram.mmd", "01b_ConcreteClassDiagram.mmd",
+                     "02_FlowDiagram.mmd", "03_LifeCycleDiagram.mmd"):
+            (self.directory / "Diagrams" / name).write_text("%% stub")
+        state = {"feature": "Feature", "artifact_roles": {}}
+        _import_artifacts(self.directory, state)
+        self.assertEqual(state["artifact_roles"], {
+            "framework_class_diagram": "Diagrams/01_ClassDiagram.mmd",
+            "concrete_class_diagram": "Diagrams/01b_ConcreteClassDiagram.mmd",
+            "flow_diagram": "Diagrams/02_FlowDiagram.mmd",
+            "life_cycle_diagram": "Diagrams/03_LifeCycleDiagram.mmd",
+        })
 
     def test_review_migration_disambiguates_ids_rebases_files_and_preserves_status(self):
         self.legacy()

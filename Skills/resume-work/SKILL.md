@@ -44,7 +44,6 @@ pick:
   - "Otherwise ask with the host's choice prompt (AskUserQuestion in Claude Code; a numbered list elsewhere). One option per feature, newest first, at most 4: label = feature, description = '<phase_label> · <status> · next: <next, shortened>'."
   - "More than 4 features: print the full list (as /active-features shows it) above the prompt, offer the 4 newest, and say the engineer can type any other name via Other."
   - "Wait for the choice. A typed name that matches no listed feature is handled by the 'file does not exist' step."
-  - "If the chosen phase's recommended model differs from this session's, mention its fresh-session command (the resume command from `features`) once, and continue here unless the engineer switches."
 ```
 
 ## Step 2 — Reload
@@ -52,10 +51,12 @@ pick:
 ```yaml
 reload:
   - "Read: Processes/CreateFeature/index.md"
+  - "Model check, before reading anything else: find current_phase's recommended_model in the phases table just read, and compare it to the model this session is actually running as (stated in your own context, e.g. 'Sonnet 5' -> alias sonnet). If they match, continue silently. If they differ, stop here and ask the engineer (AskUserQuestion, header 'Model'): first option 'Switch — run `claude --model <recommended_model> \"/resume-work <FeatureName>\"` in a new session' (the recommended choice), second option 'Continue here on <this session's current model>'. Proceed only after they answer — do not default to continuing on a mismatched (often pricier) model."
   - "Read: the selected feature state through the tool; use focused sections where possible."
   - "Read: the phase file for current_phase."
   - "Read: the rule files that phase depends on — for Phase 2 and later, the load_rules list in Phase2_Discovery.md, using [FeatureName]_Discovery.md to decide the conditional ones."
   - "Read: the artifacts the current phase works from (e.g. TDD and TaskList for Phase 1–3, Architecture and Discovery for Phase 4, UseCases for Phase 5). Skip ones it does not use."
+  - "Phase 4, task still in its Task Table Proposal stage (checkpoint.in_flight/next names a task with no batch plan yet): read that task's persisted table via artifact_roles[\"task_<id>_plan\"] (the path in state.json) instead of re-deriving it from the TDD design — the table already exists verbatim in that file."
   - "Check the host's SystemIndex for an entry matching the system this feature lives in (not just the feature's own Discovery/Architecture docs) — read it too if one exists. A feature's own docs cover what changed; the SystemIndex entry covers the system's standing gotchas and may be stale, in which case propose updating it at /end-session."
   - "Checkpoint lists files in `done`: confirm they exist on disk (one ls / codeindex query). Do not re-read their bodies unless the next step needs them."
   - "External `sources_of_truth` entries (e.g. the Confluence TDD) are NOT fetched on resume — local first: the feature folder (TDD, diagrams, review.json via the doc-review preview) is the working copy, and external pages are publish targets. List each entry with its recorded version as 'not checked (local-first)'. Check drift only when the engineer asks (e.g. 'check Confluence') or the next step is an [[ExternalDocPass]] publish or review pass — then use the host doc-conventions file's cheap drift check, and read the new version only if it is newer and the current phase works from it."
