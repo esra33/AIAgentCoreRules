@@ -125,32 +125,31 @@ diagram_types:
   framework_class_diagram:
     file:    "01a_FrameworkClassDiagram.mmd"
     syntax:  "mermaid classDiagram"
-    shows:   "Abstract/interface/base types the feature's own types extend or implement, plus unchanged framework types shown only for context."
+    shows:   "Shared contracts and the provider-independent types that implement or coordinate them. Show existing types where they clarify a dependency."
     colors:  "This file's 3(+1)-color NEW/MODIFIED/DELETED/existingStyle scheme — existingStyle is the common case here."
   concrete_class_diagram:
     file:    "01b_ConcreteClassDiagram.mmd"
     syntax:  "mermaid classDiagram"
-    shows:   "Only the feature's own concrete NEW/MODIFIED/DELETED types — no abstract/framework context (that's the diagram above)."
-    colors:  "Same 3-color scheme; existingStyle is rare here by construction."
+    shows:   "Concrete types for a specific implementation, such as a provider adapter and the existing transport it uses."
+    colors:  "Same change colors, with existingStyle for unchanged implementation dependencies."
   flow_diagram:
     file:    "02_FlowDiagram.mmd"
     syntax:  "mermaid flowchart"
     shows:   "Process/control flow — unchanged, see Scope above."
     colors:  "The general/decision/terminator/failure palette above, not this scheme."
-  life_cycle_diagram:
-    file:    "03_LifeCycleDiagram.mmd"
-    syntax:  "mermaid stateDiagram-v2"
-    shows:   "The states a key object or record moves through over its lifetime, and the transitions between them (e.g. created -> active -> forgiven -> cleared)."
-    colors:  "No classDef scheme — stateDiagram-v2's default styling. Decided against inventing one: no diagram in this repo uses stateDiagram-v2 yet, and classDef/class support for it varies by mermaid-cli version. Name any terminal state in one line of prose next to the diagram instead of a colored legend."
+  sequence_diagram:
+    file:    "03_SequenceDiagram.mmd"
+    syntax:  "mermaid sequenceDiagram"
+    shows:   "Participants on lifelines and the messages they exchange in time order. Use loop and alternative blocks where repeated calls or branches matter."
+    colors:  "Use Mermaid's default sequence styling. The flowchart palette is for flowchart nodes."
 ```
 
 A feature with only the historical single class diagram (pre-dating this split) still works:
 `legacy_migration.py` maps its old filenames (`01_ClassStructure.mmd`, `01_ClassDiagram.mmd`)
 to `framework_class_diagram` — that single diagram already mixed framework context with the
-feature's own types, which is what `framework_class_diagram` alone also allows. Splitting its
-concrete types out into a separate `01b_ConcreteClassDiagram.mmd` is optional, done when the
-framework diagram gets crowded enough that the split earns its own tab, not required for every
-feature.
+feature's own types. Add `01b_ConcreteClassDiagram.mmd` when an implementation-specific view
+helps explain how a selected provider or other specialization works. Existing
+`03_LifeCycleDiagram.mmd` files remain available in the preview under their historical role.
 
 ---
 

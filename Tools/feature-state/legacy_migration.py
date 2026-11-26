@@ -185,6 +185,7 @@ def _import_artifacts(directory, state):
     for role, names in (("framework_class_diagram", ("01_ClassStructure.mmd", "01_ClassDiagram.mmd", "01a_FrameworkClassDiagram.mmd")),
                         ("concrete_class_diagram", ("01b_ConcreteClassDiagram.mmd",)),
                         ("flow_diagram", ("02_MainFlow.mmd", "02_FlowDiagram.mmd")),
+                        ("sequence_diagram", ("03_SequenceDiagram.mmd",)),
                         ("life_cycle_diagram", ("03_LifeCycleDiagram.mmd",))):
         candidates = [directory / "Diagrams" / name for name in names if (directory / "Diagrams" / name).is_file()]
         if len(candidates) == 1:

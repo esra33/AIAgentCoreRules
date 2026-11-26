@@ -77,9 +77,11 @@ subcommand to select a host explicitly. `--agent both` configures both hosts; `-
 is the default and preserves existing Claude behavior. Existing instruction files and skill
 link conflicts are preserved. `check` and `install --dry-run` do not write files.
 
-Codex invokes these skills as `$discover`, `$audit`, `$resume-work`, etc. Skill folders remain
-symlinks to the authoritative shared source. Codex normally detects new skills automatically;
-restart it if the skills do not appear. See [Build skills](https://learn.chatgpt.com/docs/build-skills).
+Codex invokes these skills as `$discover`, `$audit`, `$resume-work`, etc. Existing skill links
+pick up updates from the shared checkout. New skill directories need new links in the host
+project's `.agents/skills/`. After updating the shared checkout, run the installer's
+`check --agent codex` from the host project. Run `install --agent codex` if the check reports
+missing links. Restart Codex if the linked skills do not appear. See [Build skills](https://learn.chatgpt.com/docs/build-skills).
 
 The Codex path does not merge `.claude/settings.json`, install Claude hooks, or create CLAUDE.md.
 The shared skill instructions still contain Claude-specific assumptions: adapt tool names to

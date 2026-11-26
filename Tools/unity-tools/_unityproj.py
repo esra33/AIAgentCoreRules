@@ -16,6 +16,7 @@ import re
 import subprocess
 import xml.etree.ElementTree as ET
 from functools import lru_cache
+from glob import glob
 
 NS = "{http://schemas.microsoft.com/developer/msbuild/2003}"
 
@@ -115,6 +116,17 @@ def find_compiler(root):
             csc = os.path.join(prefix, "DotNetSdkRoslyn", "csc.dll")
             if os.path.exists(dotnet) and os.path.exists(csc):
                 return dotnet, csc
+
+        sdk_root = os.path.join(contents, "Resources", "Scripting", "DotNetSdk")
+        dotnet = os.path.join(sdk_root, "dotnet")
+        if os.path.isfile(dotnet):
+            compilers = []
+            for csc in glob(os.path.join(sdk_root, "sdk", "*", "Roslyn", "bincore", "csc.dll")):
+                sdk_version = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(csc))))
+                if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sdk_version) and os.path.isfile(csc):
+                    compilers.append((tuple(map(int, sdk_version.split("."))), csc))
+            if compilers:
+                return dotnet, max(compilers)[1]
 
     raise ProjectError(
         "No Unity %s install found with a bundled Roslyn.\nLooked in:\n  %s\n"

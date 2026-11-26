@@ -92,7 +92,7 @@ class ProjectPreviewTests(unittest.TestCase):
             'framework_class_diagram': '01a_FrameworkClassDiagram.mmd',
             'concrete_class_diagram': '01b_ConcreteClassDiagram.mmd',
             'flow_diagram': '02_FlowDiagram.mmd',
-            'life_cycle_diagram': '03_LifeCycleDiagram.mmd',
+            'sequence_diagram': '03_SequenceDiagram.mmd',
         }
         for role, name in names.items():
             (directory / 'Diagrams' / name).write_text(f'%% {role}')
@@ -104,9 +104,20 @@ class ProjectPreviewTests(unittest.TestCase):
         for title, role in (('Framework Class Diagram', 'framework_class_diagram'),
                              ('Concrete Class Diagram', 'concrete_class_diagram'),
                              ('Flow Diagram', 'flow_diagram'),
-                             ('Life Cycle Diagram', 'life_cycle_diagram')):
+                             ('Sequence Diagram', 'sequence_diagram')):
             self.assertEqual(tabs[title]['file'], f'Diagrams/{names[role]}')
             self.assertEqual(tabs[title]['kind'], 'mmd')
+
+    def test_sequenceTabStillShowsLegacyLifeCycleArtifact(self):
+        directory = self.root / 'Alpha'
+        legacy = directory / '03_LifeCycleDiagram.mmd'
+        legacy.write_text('stateDiagram-v2')
+        state = project_server.feature_state.load_state(directory)
+        state['artifact_roles']['life_cycle_diagram'] = legacy.name
+        (directory / 'state.json').write_text(json.dumps(state))
+        tabs = {tab['title']: tab for tab in project_server.project_tabs(self.root, directory)}
+        self.assertEqual(tabs['Life Cycle Diagram']['path'], legacy)
+        self.assertNotIn('Sequence Diagram', tabs)
 
     def test_rejectsFeatureAndArtifactTraversal(self):
         with self.assertRaises(ValueError):

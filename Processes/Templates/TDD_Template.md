@@ -65,15 +65,15 @@ empty group rather than omitting it.]
 ### Architecture Diagrams [Optional — only if the architecture includes diagrams]
 [Diagram sources live in `Diagrams/*.mmd`, up to four types — naming, syntax and colors for
 each are in [[ChangeClassification]]'s "Diagram types and naming":
-`01a_FrameworkClassDiagram.mmd` (framework/abstract types, classDiagram),
-`01b_ConcreteClassDiagram.mmd` (the feature's own concrete types, classDiagram, optional — only
-once the framework diagram would otherwise get crowded), `02_FlowDiagram.mmd` (process flow,
-flowchart), `03_LifeCycleDiagram.mmd` (an object/record's states over time, stateDiagram-v2).
+`01a_FrameworkClassDiagram.mmd` (shared contracts and provider-independent types, classDiagram),
+`01b_ConcreteClassDiagram.mmd` (optional implementation-specific types, classDiagram),
+`02_FlowDiagram.mmd` (process flow, flowchart), and `03_SequenceDiagram.mmd`
+(ordered messages between participants, sequenceDiagram).
 Validate every diagram locally before embedding it here or pushing it to a board — see
 "Validating a local diagram" in [[ExternalDocPass]]. A structural diagram (class/component) uses
 [[ChangeClassification]]'s NEW/MODIFIED/DELETED colors and legend; a process-flow diagram uses its
-own separate palette, also defined there; a life-cycle diagram uses stateDiagram-v2's default
-styling with no custom palette. Embed each diagram inline, right here, in its own
+own separate palette, also defined there. A sequence diagram uses the default Mermaid sequence
+styling. Embed each diagram inline, right here, in its own
 collapsible block so the document stays self-contained:
 
 <details>

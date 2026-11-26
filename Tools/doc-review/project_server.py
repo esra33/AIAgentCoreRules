@@ -17,8 +17,8 @@ import feature_state
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'setup'))
 import project_config
 
-TITLES = ('Home', 'Plan', 'TDD', 'GDD', 'Framework Class Diagram', 'Concrete Class Diagram', 'Flow Diagram', 'Life Cycle Diagram', 'LLM Performance')
-ROLES = ('plan', 'tdd', 'gdd', 'framework_class_diagram', 'concrete_class_diagram', 'flow_diagram', 'life_cycle_diagram', 'performance')
+TITLES = ('Home', 'Plan', 'TDD', 'GDD', 'Framework Class Diagram', 'Concrete Class Diagram', 'Flow Diagram', 'Sequence Diagram', 'LLM Performance')
+ROLES = ('plan', 'tdd', 'gdd', 'framework_class_diagram', 'concrete_class_diagram', 'flow_diagram', 'sequence_diagram', 'performance')
 
 
 def feature_path(root, name):
@@ -94,6 +94,9 @@ def project_tabs(root, directory=None):
         if state:
             roles = state.get('artifact_roles', {})
             value = roles.get(role)
+            if role == 'sequence_diagram' and value is None and roles.get('life_cycle_diagram'):
+                value = roles['life_cycle_diagram']
+                tab.update(title='Life Cycle Diagram', file='#life_cycle_diagram')
             if isinstance(value, list):
                 value = value[0] if len(value) == 1 else None
             path = artifact_path(directory, value)

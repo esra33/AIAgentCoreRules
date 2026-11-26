@@ -214,10 +214,10 @@ Keep me exactly.
         self.assertEqual(migrate_feature(self.directory, True)["status"], "already_migrated")
         self.assertEqual(load_state(self.directory)["checkpoint"]["next"], "New work")
 
-    def test_import_artifacts_detects_all_four_diagram_roles(self):
+    def test_import_artifacts_detects_current_and_legacy_diagram_roles(self):
         (self.directory / "Diagrams").mkdir()
         for name in ("01_ClassDiagram.mmd", "01b_ConcreteClassDiagram.mmd",
-                     "02_FlowDiagram.mmd", "03_LifeCycleDiagram.mmd"):
+                     "02_FlowDiagram.mmd", "03_SequenceDiagram.mmd", "03_LifeCycleDiagram.mmd"):
             (self.directory / "Diagrams" / name).write_text("%% stub")
         state = {"feature": "Feature", "artifact_roles": {}}
         _import_artifacts(self.directory, state)
@@ -225,6 +225,7 @@ Keep me exactly.
             "framework_class_diagram": "Diagrams/01_ClassDiagram.mmd",
             "concrete_class_diagram": "Diagrams/01b_ConcreteClassDiagram.mmd",
             "flow_diagram": "Diagrams/02_FlowDiagram.mmd",
+            "sequence_diagram": "Diagrams/03_SequenceDiagram.mmd",
             "life_cycle_diagram": "Diagrams/03_LifeCycleDiagram.mmd",
         })
 

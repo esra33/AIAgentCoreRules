@@ -52,6 +52,10 @@ edit triggers a `typecheck.py --files` baseline, and every `.cs` edit is run thr
 Verifies a change compiles without launching Unity, using Unity's bundled Roslyn compiler and
 reporting only errors. A full project check takes roughly 7 seconds.
 
+On macOS, compiler discovery also supports the bundled `DotNetSdk` layout used by Unity
+6000.6.7f1. It uses the highest installed stable SDK version in that editor bundle that
+contains `Roslyn/bincore/csc.dll`.
+
 ```bash
 python3 typecheck.py                     # changed assemblies + everything referencing them
 python3 typecheck.py Assembly-CSharp     # named assemblies + their dependents
