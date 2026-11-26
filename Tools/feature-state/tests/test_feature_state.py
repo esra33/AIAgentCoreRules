@@ -18,6 +18,34 @@ class FeatureStateTests(unittest.TestCase):
         self.directory = Path(self.temporary.name) / "Feature"
         self.directory.mkdir()
 
+    def test_diagram_task_activity_follows_implementation_and_review(self):
+        state = create_state(self.directory)
+        state["current_phase"] = "4_implementation"
+        (self.directory / "state.json").write_text(json.dumps(state))
+
+        def update(operation, payload):
+            return update_state(self.directory, operation, payload, load_state(self.directory)["revision"])
+
+        update("task", {"id": "T1", "status": "todo"})
+        for mapping in ({"flow_diagram": ["Engine"]},
+                        {"concrete_class_diagram": ["Engine", "Engine"]},
+                        {"concrete_class_diagram": [" "]}):
+            with self.assertRaises(StateError):
+                update("task", {"id": "T1", "status": "partial", "diagram_nodes": mapping})
+        mapping = {"concrete_class_diagram": ["Engine"]}
+        task = {"id": "T1", "status": "partial", "implementation_active": True}
+        update("task", dict(task, diagram_nodes=mapping))
+        reviewing = update("batch", {"task_id": "T1", "value": {"open_pr": 42}})
+        self.assertFalse(reviewing["tasks"][0]["implementation_active"])
+        with self.assertRaises(StateError):
+            update("task", task)
+        merged = update("batch", {"task_id": "T1", "value": {"merged": 1, "open_pr": None}})
+        self.assertFalse(merged["tasks"][0]["implementation_active"])
+        update("task", task)
+        done = update("task", {"id": "T1", "status": "done"})["tasks"][0]
+        self.assertFalse(done["implementation_active"])
+        self.assertEqual(done["diagram_nodes"], mapping)
+
     def test_stale_updates_leave_state_and_projection_unchanged(self):
         create_state(self.directory)
         update_state(self.directory, "checkpoint", {"checkpoint": {"next": "Review"}}, 1)

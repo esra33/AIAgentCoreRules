@@ -89,3 +89,16 @@ engineer walks through items; preview progression is read-only. Gate 6 still req
 explicit engineer approval. Checklist history survives gate transitions. Missing historical
 checklists display “Checklist not recorded”; never infer prior outcomes. Generated Progress
 includes the ordered checklist and notes; do not edit it directly.
+
+## Task links for class diagrams
+
+The revision-checked `task` operation accepts optional `diagram_nodes` and
+`implementation_active` fields alongside the required task ID and status.
+`diagram_nodes` maps `framework_class_diagram` and `concrete_class_diagram` to lists of
+unique, nonempty Mermaid source IDs. Supplying the map replaces the task's previous map.
+Use an empty map to remove all links. Omitted fields preserve the current values on update
+and default to no links and inactive for older tasks.
+
+Set `implementation_active` to true only during active Phase 4 implementation with no open
+batch PR. Completing a task, opening its batch PR, or leaving active implementation clears
+the flag. Resuming implementation requires an explicit task update.

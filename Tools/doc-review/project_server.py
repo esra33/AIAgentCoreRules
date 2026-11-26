@@ -37,6 +37,26 @@ def artifact_path(directory, value):
     return path
 
 
+def diagram_progress(state, tabs):
+    if not state:
+        return {}
+    by_role = {}
+    active_phase = state['current_phase'] == '4_implementation' and state['status'] == 'in_progress'
+    for task in state['tasks']:
+        done = task['status'] == 'done'
+        active = (active_phase and task.get('implementation_active', False) and not done
+                  and not state['batches'].get(task['id'], {}).get('open_pr'))
+        for role, ids in task.get('diagram_nodes', {}).items():
+            nodes = by_role.setdefault(role, {})
+            for node in ids:
+                counts = nodes.setdefault(node, {'done': 0, 'total': 0, 'active': False})
+                counts['done'] += done
+                counts['total'] += 1
+                counts['active'] |= active
+    return {tab['id']: by_role[tab['role']] for tab in tabs
+            if tab['kind'] == 'mmd' and tab.get('role') in by_role}
+
+
 def project_tabs(root, directory=None):
     entries = feature_state.list_features(root)
     rows = ['# Active features', '']
@@ -89,6 +109,7 @@ def project_tabs(root, directory=None):
     # Add remaining fixed tabs (TDD, GDD, diagrams, performance)
     for title, role in zip(TITLES[2:], ROLES[1:]):
         tab = {'title': title, 'kind': 'md', 'file': '#' + role, 'path': root, 'content': 'Pending generation or data not found yet.'}
+        tab['role'] = role
         if directory and state is None:
             tab['content'] = 'Migration required. Run the feature-state migration command explicitly.'
         if state:
@@ -146,7 +167,9 @@ class ProjectHandler(view.ReviewRequestHandler):
                 for thread in threads:
                     artifact_path(self.directory, thread['anchor']['file'])
                     thread['resolution'] = view.resolve_thread(self.directory, thread)
-                self._send_json({'mtimes': view._collect_mtimes(self.project_tabs), 'threads': threads, 'topology': self._topology()})
+                state = feature_state.load_state(self.directory) if self.directory and (self.directory / 'state.json').is_file() else None
+                self._send_json({'mtimes': view._collect_mtimes(self.project_tabs), 'threads': threads,
+                                 'topology': self._topology(), 'diagram_progress': diagram_progress(state, self.project_tabs)})
             elif self.path == '/api/sources':
                 self._send_json(view._collect_sources(self.project_tabs))
             else:

@@ -15,13 +15,36 @@ from urllib.request import urlopen
 TOOL_DIRS = (Path(__file__).parent, Path(__file__).parent.parent / 'feature-state')
 
 
-def healthy(state, project):
+def server_identity(url):
     try:
-        with urlopen(state['url'] + 'api/health', timeout=1) as response:
-            data = json.load(response)
-        return data.get('project') == str(project) and data.get('pid') == state['pid']
-    except (OSError, ValueError, KeyError):
+        with urlopen(url + 'api/health', timeout=1) as response:
+            identity = json.load(response)
+        return identity if isinstance(identity, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def healthy(state, project):
+    if not state.get('url'):
         return False
+    identity = server_identity(state['url'])
+    return identity.get('project') == str(project) and identity.get('pid') == state.get('pid')
+
+
+def list_previews():
+    from doc_review import running_servers
+
+    found = False
+    for server in running_servers('serve-project'):
+        if not server['port']:
+            continue
+        url = f"http://127.0.0.1:{server['port']}/"
+        identity = server_identity(url)
+        if identity.get('pid') == server['pid'] and identity.get('project'):
+            print(f"pid {server['pid']}  {url}  {identity['project']}")
+            found = True
+    if not found:
+        print('No active project previews')
 
 
 def tool_code_mtime(tool_dirs=None):
@@ -101,12 +124,15 @@ def control(action, project):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('start', 'stop', 'status'))
+    parser.add_argument('action', choices=('start', 'stop', 'status', 'list'))
     parser.add_argument('--project', default='.')
     args = parser.parse_args()
     try:
-        control(args.action, Path(args.project))
-    except (OSError, RuntimeError) as error:
+        if args.action == 'list':
+            list_previews()
+        else:
+            control(args.action, Path(args.project))
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         parser.exit(1, str(error) + '\n')
 
 

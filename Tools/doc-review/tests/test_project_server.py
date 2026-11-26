@@ -125,6 +125,43 @@ class ProjectPreviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             project_server.artifact_path(self.root / 'Alpha', '../../outside.md')
 
+    def test_diagram_progress_is_feature_and_role_scoped(self):
+        directory = self.root / 'Alpha'
+        framework = 'framework_class_diagram'
+        concrete = 'concrete_class_diagram'
+        state = project_server.feature_state.load_state(directory)
+        state['current_phase'] = '4_implementation'
+        for role in (framework, concrete):
+            path = directory / (role + '.mmd')
+            path.write_text('classDiagram\n  class Engine')
+            state['artifact_roles'][role] = path.name
+        state['tasks'] = [
+            {'id': 'T1', 'status': 'done', 'diagram_nodes': {framework: ['Engine'], concrete: ['Engine']}},
+            {'id': 'T2', 'status': 'partial', 'diagram_nodes': {concrete: ['Engine']}, 'implementation_active': True},
+            {'id': 'T3', 'status': 'todo'},
+        ]
+        (directory / 'state.json').write_text(json.dumps(state))
+        roles = {tab.get('role'): tab['id'] for tab in project_server.project_tabs(self.root, directory)}
+        server = _bind_server(functools.partial(project_server.ProjectHandler, features_root=self.root, project=self.project), None)
+        self.addCleanup(server.server_close)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        url = f'http://127.0.0.1:{server.server_address[1]}/api/state?feature='
+
+        def progress(feature):
+            with urlopen(url + feature) as response:
+                return json.load(response)['diagram_progress']
+
+        self.assertEqual(progress('Alpha'), {
+            roles[framework]: {'Engine': {'done': 1, 'total': 1, 'active': False}},
+            roles[concrete]: {'Engine': {'done': 1, 'total': 2, 'active': True}},
+        })
+        self.assertEqual(progress('Beta'), {})
+        project_server.feature_state.update_state(
+            directory, 'batch', {'task_id': 'T2', 'value': {'open_pr': 42}}, state['revision'])
+        self.assertEqual(progress('Alpha')[roles[concrete]]['Engine'],
+                         {'done': 1, 'total': 2, 'active': False})
+
     def test_commentsAreRequestScopedAndSourceFilesRemainUnchanged(self):
         server = _bind_server(functools.partial(project_server.ProjectHandler, features_root=self.root, project=self.project), None)
         self.addCleanup(server.server_close)

@@ -4,6 +4,7 @@ import { enableTextSelectionComments } from "./text_anchors.js";
 import { enableDiagramClickComments } from "./diagram_anchors.js";
 import { redrawOverlays } from "./overlays.js";
 import { renderThreadPanel } from "./thread_panel.js";
+import "./diagram_progress.js";
 
 const FOCUS_ZOOM = 2;
 const FOCUS_SETTLE_FRAMES = 3;

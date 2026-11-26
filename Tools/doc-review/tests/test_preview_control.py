@@ -92,10 +92,13 @@ class ParallelProjectTests(unittest.TestCase):
             projects = [root / 'First project', root / 'Second project']
             environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', SESSION_FEATURES_ROOT='')
 
-            def command(action, project):
-                return ['bash', str(TOOL_DIR / 'preview-control.sh'), action, '--project', str(project)]
+            def command(action, project=None):
+                args = ['bash', str(TOOL_DIR / 'preview-control.sh'), action]
+                if project is not None:
+                    args.extend(['--project', str(project)])
+                return args
 
-            def run(action, project):
+            def run(action, project=None):
                 return subprocess.run(command(action, project), env=environment, cwd=root,
                                       capture_output=True, text=True, check=True, timeout=20).stdout.strip()
 
@@ -115,10 +118,17 @@ class ParallelProjectTests(unittest.TestCase):
                 self.assertNotEqual(first_url, second_url)
                 identities = [health(first_url), health(second_url)]
                 self.assertNotEqual(identities[0]['pid'], identities[1]['pid'])
+                previews = run('list').splitlines()
+                expected = []
                 for project, url, identity in zip(projects, (first_url, second_url), identities):
                     self.assertEqual(identity['project'], str(project))
                     self.assertEqual(run('start', project), url)
+                    expected.append(f"pid {identity['pid']}  {url}  {project}")
+                    self.assertIn(expected[-1], previews)
                 self.assertEqual(run('stop', projects[0]), 'Stopped')
+                previews = run('list').splitlines()
+                self.assertNotIn(expected[0], previews)
+                self.assertIn(expected[1], previews)
                 self.assertEqual(run('status', projects[0]), 'Stopped')
                 self.assertEqual(run('status', projects[1]), 'Running: ' + second_url)
                 self.assertEqual(health(second_url), identities[1])

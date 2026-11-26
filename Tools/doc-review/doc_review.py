@@ -170,25 +170,29 @@ def cmd_pr_push(args: argparse.Namespace) -> None:
         print(f"dry run: {len(pending)} replies would be posted; rerun with --confirm to post them")
 
 
-def running_servers() -> List[Dict]:
+def running_servers(action=None) -> List[Dict]:
     # Only the Python process: a Bash(run_in_background) launch also leaves a shell whose command
     # line names doc_review.py, and killing that shell would leave the server running.
-    ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=False)
-    servers = parse_server_processes(ps.stdout)
+    ps = subprocess.run(["ps", "-ww", "-axo", "pid=,command="], capture_output=True, text=True, check=True)
+    servers = parse_server_processes(ps.stdout, action)
     for server in servers:
         server["port"] = _listen_port(server["pid"])
-        server["cwd"] = _process_cwd(server["pid"])
+        if action is None:
+            server["cwd"] = _process_cwd(server["pid"])
     return servers
 
 
-def parse_server_processes(ps_output: str) -> List[Dict]:
+def parse_server_processes(ps_output: str, action=None) -> List[Dict]:
+    actions = (action,) if action else ("serve", "serve-project")
     servers = []
     for line in ps_output.splitlines():
         parts = line.split()
         if len(parts) < 2 or not parts[0].isdigit() or Path(parts[1]).name in SHELL_NAMES:
             continue
         script_index = next((i for i, part in enumerate(parts) if part.endswith("doc_review.py")), None)
-        if script_index is None or parts[script_index + 1: script_index + 2] not in (["serve"], ["serve-project"]) or "--static" in parts:
+        if script_index is None or script_index + 1 == len(parts):
+            continue
+        if parts[script_index + 1] not in actions or "--static" in parts:
             continue
         doc = parts[script_index + 2] if len(parts) > script_index + 2 else ""
         servers.append({"pid": int(parts[0]), "doc": doc})

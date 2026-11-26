@@ -97,8 +97,16 @@ python3 Tools/feature-state/feature_state.py task <feature_dir> \
   --revision <N>
 ```
 
-Both are existing operations (`artifact`, `task`); `table_approved` is the only new field,
-added with merge semantics so no other task field is touched.
+Include `diagram_nodes` in the task update when the approved table identifies diagram types.
+Use the exact Mermaid source IDs under `framework_class_diagram` and
+`concrete_class_diagram`, for example `{"concrete_class_diagram":["StoryEngine"]}`.
+Record links for later tasks up front when the approved design already identifies their
+types. Read the latest revision before each update and preserve the task's recorded status.
+
+When implementation starts or resumes, set `implementation_active: true` through the same
+`task` operation. Set it to `false` before pausing or handing off for review. Recording an
+open batch PR or completing the task clears activity automatically. Explicitly mark the
+task active again when implementation of the next batch begins.
 
 `resume-work`'s restate step reports `checkpoint.in_flight`/`next`, not `tasks[]` directly, so
 this stage must still be reflected there like any other Phase 4 step: as soon as the table is

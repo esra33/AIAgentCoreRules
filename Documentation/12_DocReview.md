@@ -171,6 +171,9 @@ bash Tools/doc-review/preview-control.sh start --project ../StoryEngine
 Open the URL printed by each command. The previews use separate loopback ports. Pass
 the same `--project` path to `status` or `stop` to manage that project's preview independently.
 
+Run `bash Tools/doc-review/preview-control.sh list` from the shared checkout to see active
+project previews across checkouts, including their PID, URL and absolute project path.
+
 Start prints the existing URL if
 already running — unless any `Tools/doc-review/*.py` or `Tools/feature-state/*.py` file is newer
 than the server's recorded start time. Python never reloads modules, so start then stops the
@@ -227,3 +230,12 @@ See [[13_FeatureState|Feature State]] for the validated payload. The agent walks
 item at a time, waits for actual results on manual checks, and records evidence before advancing.
 Gate 6 approval remains an explicit engineer decision. Recorded outcomes remain visible in later
 phases; old features with no item data show “Checklist not recorded.”
+
+## Class diagram progress
+
+The Framework and Concrete Class Diagram tabs display a percentage for each mapped type.
+It is the number of completed linked tasks divided by the total number of linked tasks,
+rounded to a whole percent. Hover over the badge to see the counts. The denominator can
+change as approved work is added or removed. A dashed blue outline indicates active Phase 4
+implementation on a linked task. It clears on pause, batch PR review, or task completion.
+Both indicators refresh through the live preview. Nodes with no mapping stay unmarked.

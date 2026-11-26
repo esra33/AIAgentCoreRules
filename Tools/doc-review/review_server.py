@@ -380,6 +380,7 @@ PAGE_TEMPLATE = """<!doctype html>
       inst.resize();
       inst.fit();
       inst.center();
+      document.dispatchEvent(new CustomEvent("docreview:diagram-activated", {{ detail: {{ tabId: id }} }}));
     }}
   }}
   document.querySelectorAll(".tab").forEach((el, i) => el.addEventListener("click", () => activate(i)));
@@ -403,7 +404,9 @@ LIVE_SCRIPT_TEMPLATE = """
       const res = await fetch("/api/state");
       const state = await res.json();
       if (state.topology && state.topology !== window.projectTopology) {{ location.reload(); return; }}
-      document.dispatchEvent(new CustomEvent("docreview:state", {{ detail: {{ threads: state.threads }} }}));
+      document.dispatchEvent(new CustomEvent("docreview:state", {{
+        detail: {{ threads: state.threads, diagramProgress: state.diagram_progress }},
+      }}));
       const changedIds = [];
       for (const [id, path] of Object.entries(tabPaths)) {{
         const mtime = state.mtimes[path];

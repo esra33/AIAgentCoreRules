@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run from the project root; optionally pass an explicit project directory.
+# Run list from any directory. For start, stop, or status, use the project root
+# or pass --project.
 set -euo pipefail
 if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
     printf 'Run this script instead of sourcing it.\n' >&2

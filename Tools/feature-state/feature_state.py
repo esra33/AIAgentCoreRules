@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 SCHEMA_VERSION = 1
+CLASS_DIAGRAM_ROLES = {"framework_class_diagram", "concrete_class_diagram"}
 STATUSES = {"in_progress", "at_gate", "complete", "abandoned", "superseded", "on_hold"}
 CLOSED = {"complete", "abandoned", "superseded", "on_hold"}
 PHASES = {f"{number}_{name}" for number, name in enumerate(
@@ -62,6 +63,17 @@ def validate_state(data):
             raise StateError("tasks require T-ids and todo/partial/done statuses")
         if "table_approved" in task and not isinstance(task["table_approved"], bool):
             raise StateError("task table_approved must be a boolean")
+        active = task.get("implementation_active", False)
+        if not isinstance(active, bool) or (active and task["status"] == "done"):
+            raise StateError("implementation_active must be boolean and false for completed tasks")
+        nodes = task.get("diagram_nodes", {})
+        if not isinstance(nodes, dict) or set(nodes) - CLASS_DIAGRAM_ROLES:
+            raise StateError("diagram_nodes must map class diagram roles to node IDs")
+        for ids in nodes.values():
+            if (not isinstance(ids, list)
+                    or any(not isinstance(node, str) or not node.strip() for node in ids)
+                    or len(set(ids)) != len(ids)):
+                raise StateError("diagram node IDs must be unique nonempty strings per role")
     if len({item["id"] for item in data["tasks"]}) != len(data["tasks"]):
         raise StateError("duplicate task IDs")
     for key, values in data["pull_requests"].items():
@@ -334,9 +346,20 @@ def update_state(feature_dir, operation, payload, expected_revision):
                 if not re.fullmatch(r"T\d+", task.get("id", "")) or task.get("status") not in {"todo", "partial", "done"}:
                     raise StateError("task requires T-id and todo/partial/done status")
                 existing = next((item for item in state["tasks"] if item["id"] == task["id"]), {})
+                if task["status"] == "done" and "implementation_active" in existing:
+                    task.setdefault("implementation_active", False)
                 state["tasks"] = [item for item in state["tasks"] if item["id"] != task["id"]] + [dict(existing, **task)]
         elif operation != "render":
             raise StateError("unknown operation")
+        for task in state["tasks"]:
+            if task.get("implementation_active") is True and (
+                state["status"] != "in_progress"
+                or state["current_phase"] != "4_implementation"
+                or state["batches"].get(task["id"], {}).get("open_pr")
+            ):
+                if operation == "task" and payload["id"] == task["id"] and payload.get("implementation_active") is True:
+                    raise StateError("task activity requires active Phase 4 implementation without an open batch PR")
+                task["implementation_active"] = False
         if state != original:
             state["revision"] += 1
             state["updated_at"] = now()

@@ -32,7 +32,7 @@ function screenToDiagramPoint(panelEl, clientX, clientY) {
   return { x: (clientX - rect.left - pan.x) / zoom, y: (clientY - rect.top - pan.y) / zoom };
 }
 
-function nodeSourceId(nodeEl) {
+export function nodeSourceId(nodeEl) {
   // mermaid 11.15.0: a flowchart node's id is "<svgId>-flowchart-<sourceId>-<n>"; a classDiagram
   // node's is "<svgId>-classId-<sourceId>-<n>" (confirmed via headless render of both). Edges are
   // out of scope here -- classDiagram relations use a completely different id/class scheme
