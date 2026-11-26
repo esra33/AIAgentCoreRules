@@ -44,7 +44,10 @@ The installer (steps 1 and 4) handles this. On a new install, it offers a picker
 2. `AIMetaData/` at the project root for metadata that can be committed with the project.
 
 It creates starter `Rules/ProjectRules.md`, `SystemIndex.md`, and
-`Setup/settings.host.json` files. Existing host layers stay where they are. In a script, pass
+`Setup/settings.host.json` files. Existing host layers stay where they are. A project with
+`Documentation/AIMetaData/` is discovered directly on reinstall; no root-level symlink is
+needed. Separate host layers in `Documentation/AIMetaData/` and root `AIMetaData/` conflict,
+while a symlink to the same folder is accepted. In a script, pass
 `install --metadata-location externals` or `install --metadata-location project`. The root
 option requires git ignore rules that allow `AIMetaData/` to be committed.
 

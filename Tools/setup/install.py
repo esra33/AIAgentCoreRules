@@ -121,10 +121,16 @@ def find_layers(root, planned_core=None):
             layers.append((name, path))
     if planned_core and planned_core not in layers:
         layers.append(planned_core)
-    host_path = os.path.join(root, HOST_NAME)
-    if os.path.isdir(host_path):
-        if host_layers(layers):
-            raise RuntimeError(f"host metadata exists in both {externals} and {host_path}")
+    host_paths = (os.path.join(root, "Documentation", HOST_NAME),
+                  os.path.join(root, HOST_NAME))
+    for host_path in host_paths:
+        if not os.path.isdir(host_path):
+            continue
+        existing = host_layers(layers)
+        if existing:
+            if os.path.realpath(existing[0][1]) == os.path.realpath(host_path):
+                continue
+            raise RuntimeError(f"host metadata exists in both {existing[0][1]} and {host_path}")
         layers.append((HOST_NAME, host_path))
     is_core = lambda layer: os.path.realpath(layer[1]) == CORE_ROOT or layer[0] == CORE_NAME
     layers.sort(key=lambda layer: not is_core(layer))
@@ -147,7 +153,8 @@ def choose_host_location(args, root, layers):
     existing = host_layers(layers)
     if existing:
         if args.metadata_location:
-            selected = "project" if os.path.dirname(existing[0][1]) == root else "externals"
+            project_locations = (root, os.path.join(root, "Documentation"))
+            selected = "project" if os.path.dirname(existing[0][1]) in project_locations else "externals"
             if selected != args.metadata_location:
                 raise RuntimeError(f"host metadata already lives at {existing[0][1]}")
         return None
@@ -491,10 +498,9 @@ def cmd_install(args, root):
             install_settings(root, layers, args.dry_run, log)
             core_path = os.path.relpath(layers[0][1], root).replace(os.sep, "/")
             imports = [f"@{core_path}/Rules/{name}.md" for name in ("MetaRouter", "StopAndVerify", "CoreTags")]
-            if location is not None:
-                for _, path in host_layers(layers):
-                    host_path = os.path.relpath(path, root).replace(os.sep, "/")
-                    imports.extend((f"@{host_path}/Rules/ProjectRules.md", f"@{host_path}/SystemIndex.md"))
+            for _, path in host_layers(layers):
+                host_path = os.path.relpath(path, root).replace(os.sep, "/")
+                imports.extend((f"@{host_path}/Rules/ProjectRules.md", f"@{host_path}/SystemIndex.md"))
             install_claude_md(root, args.dry_run, log, imports)
         else:
             install_agents_md(root, layers, args.dry_run, log)

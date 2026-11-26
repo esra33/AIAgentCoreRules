@@ -81,6 +81,29 @@ class MetadataInstallTests(unittest.TestCase):
         self.assertFalse((self.root / "AIMetaData").exists())
         self.assertFalse((self.externals / "AIMetaData").exists())
 
+    def test_documentation_layer_is_discovered_without_root_alias(self):
+        host = self.root / "Documentation/AIMetaData"
+        host.mkdir(parents=True)
+        (host / "SystemIndex.md").write_text("# Project index\n")
+        preview = self.run_install("check", "--agent", "codex")
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertIn("layers: AIAgentCoreRules, AIMetaData", preview.stdout)
+        self.assertNotIn("host metadata: choose a location", preview.stdout)
+        result = self.run_install("install", "--agent", "both", "--metadata-location", "project")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Documentation/AIMetaData/SystemIndex.md", (self.root / "AGENTS.md").read_text())
+        self.assertIn("@Documentation/AIMetaData/SystemIndex.md", (self.root / "CLAUDE.md").read_text())
+        self.assertFalse((self.root / "AIMetaData").exists())
+        (self.root / "AIMetaData").symlink_to(host, target_is_directory=True)
+        self.assertEqual(self.run_install("check", "--agent", "codex").returncode, 0)
+
+    def test_distinct_root_and_documentation_layers_conflict(self):
+        (self.root / "Documentation/AIMetaData").mkdir(parents=True)
+        (self.root / "AIMetaData").mkdir()
+        result = self.run_install("check", "--agent", "codex")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("host metadata exists in both", result.stderr)
+
     def test_other_external_tool_does_not_hide_location_picker(self):
         (self.externals / "OtherTool").mkdir()
         result = self.run_install("install")
