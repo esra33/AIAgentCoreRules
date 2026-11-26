@@ -69,6 +69,8 @@ def project_tabs(root, directory=None):
         rows.append(f'<p><a href="{target}">{label}</a>{suffix}{selected}</p>')
     if not entries:
         rows.append('No active features found.')
+    for backlog in sorted(root.glob('*_Backlog.md')):
+        rows.extend(('', backlog.read_text()))
     tabs = [{'title': 'Home', 'kind': 'md', 'file': '#home', 'path': root, 'content': '\n'.join(rows)}]
     state = feature_state.load_state(directory) if directory and (directory / 'state.json').exists() else None
 
