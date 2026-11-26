@@ -167,6 +167,10 @@ self-review. Before writing
 a test file, the agent reads `Rules/TestingRules.md` (and the host project's testing-setup rule,
 if it has one); the coding standards and architectural principles do not cover tests. For files with poll handlers, event listeners, or subscription-based updates: verification includes steady-state behavior (state unchanged across multiple ticks with no data change), not just post-action snapshots.
 
+**Direct local implementation.** After approving the task file table, the engineer can explicitly
+request implementation on their current branch. Record the choice and verification in the feature
+checkpoint. A commit or push requires separate authorization.
+
 **Batched publishing.** C# and related files are reviewed as small pull requests rather than in
 one large diff. Python tools and Markdown are exempt. Each task gets its own worktree and branch
 (`feature/<Name>/<task>`), cut from the engineer's user branch, and the engineer approves a plan

@@ -35,6 +35,7 @@ Short labels used across all rule and process files. Beyond the non-negotiables 
 | SYM | Subscribe and unsubscribe live in the same method pair (SetUp/TearDown, Enable/Disable). |
 | SRP | One class or method, one reason to change. If the name needs "And", split it. |
 | GEN | Auto-generated files are never edited by hand — re-run the generator. |
+| SECRET | For process discovery, output only PIDs and executable names. If project identity is needed, report only whether it matches. Keep full process arguments and environment variables out of tool output. |
 
 ## Rule files
 

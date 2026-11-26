@@ -71,7 +71,8 @@ python3 typecheck.py Assembly-CSharp-Editor --define USING_TOOLS   # code behind
   in everything that references it, built in dependency order.
 - **A failed dependency marks its dependents `skip`, not `ok`.** Silence is not success.
 - **New files need a Unity refresh** (or `--include-new`) — a file not yet in a `.csproj` is not
-  compiled, and the script says so. `--include-new` only picks up files git reports as changed: a
+  compiled, and the script says so. `--include-new` uses the nearest `.asmdef` under `Assets/`
+  or an embedded package in `Packages/`. It only picks up files git reports as changed: a
   new `.cs` file in a gitignored folder (such as `Assets/GitIgnoreAssets/`) is not compiled, so
   its types show as CS0246, until Unity regenerates the `.csproj` (focus the Editor once).
 - **Code behind an `#if` symbol that is off** is compiled out and reports clean. Pass

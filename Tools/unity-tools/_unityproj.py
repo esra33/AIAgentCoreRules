@@ -360,21 +360,22 @@ class Project:
     # the editor: nearest ancestor .asmdef wins, otherwise the predefined assemblies.
 
     def asmdef_dirs(self):
-        """realpath(directory) -> assembly name, for every .asmdef under Assets/."""
+        """realpath(directory) -> assembly name, for .asmdefs under Assets/ and Packages/."""
         if self._asmdefs is None:
             found = {}
-            for dirpath, dirnames, filenames in os.walk(os.path.join(self.root, "Assets")):
-                dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-                for filename in filenames:
-                    if not filename.endswith(".asmdef"):
-                        continue
-                    try:
-                        with open(os.path.join(dirpath, filename), errors="replace") as fh:
-                            name = json.load(fh).get("name")
-                    except (OSError, ValueError):
-                        continue
-                    if name:
-                        found[os.path.realpath(dirpath)] = name
+            for top in ("Assets", "Packages"):
+                for dirpath, dirnames, filenames in os.walk(os.path.join(self.root, top)):
+                    dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+                    for filename in filenames:
+                        if not filename.endswith(".asmdef"):
+                            continue
+                        try:
+                            with open(os.path.join(dirpath, filename), errors="replace") as fh:
+                                name = json.load(fh).get("name")
+                        except (OSError, ValueError):
+                            continue
+                        if name:
+                            found[os.path.realpath(dirpath)] = name
             self._asmdefs = found
         return self._asmdefs
 

@@ -103,9 +103,13 @@ added with merge semantics so no other task field is touched.
 `resume-work`'s restate step reports `checkpoint.in_flight`/`next`, not `tasks[]` directly, so
 this stage must still be reflected there like any other Phase 4 step: as soon as the table is
 posted, set the Checkpoint's `in_flight` to "`<id>`: full-task table awaiting engineer review."
-Once `table_approved` is recorded, set `next` to "`/publish-batch plan <FeatureName> <id>`" and
-clear `in_flight` — otherwise a resumed session reports a stale or generic next action instead
-of picking up exactly here.
+Once `table_approved` is recorded, clear `in_flight` and set `next` to
+`/publish-batch plan <FeatureName> <id>` for batched publishing. If the engineer explicitly
+requests direct local implementation on their current branch, record that choice and set
+`next` to the first implementation step in the checkpoint.
+
+For direct local implementation, use the approved file table, run the applicable verification,
+and record the results in the feature checkpoint. A commit or push requires separate authorization.
 
 ---
 

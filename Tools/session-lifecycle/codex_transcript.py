@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -55,6 +57,21 @@ def locate(session_id, root=None):
     return candidates[0] if candidates else None
 
 
+def batched_cat_commands(source):
+    """Recognize a literal path array mapped to a single cat call without evaluating JS."""
+    if not isinstance(source, str):
+        return
+    pattern = r'''(?P<paths>\[\s*"[^"\\\x00-\x1f]*"(?:\s*,\s*"[^"\\\x00-\x1f]*")*\s*\])
+                  \.map\(async\s+(?P<param>[A-Za-z_]\w*)\s*=>\s*
+                  text\(\(await\s+tools\.exec_command\(\{cmd\s*:\s*
+                  `cat\s+'\$\{(?P=param)\}'`\}\)\)\.output\)\)'''
+    for match in re.finditer(pattern, source, re.VERBOSE):
+        paths = json.loads(match.group("paths"))
+        for path in paths:
+            if re.fullmatch(r"[\w./~-]+\.md", path):
+                yield "cat " + shlex.quote(path)
+
+
 def normalize(entry):
     """Adapt only observed tool calls to the existing trace reader's block shape."""
     if entry.get("type") != "response_item":
@@ -68,6 +85,10 @@ def normalize(entry):
     if name in ("exec", "exec_command", "shell_command", "shell"):
         blocks = [{"type": "tool_use", "name": "Bash", "input": {"command": command}}
                   for command in support_module("session_monitor").extract_tool_commands(raw)]
+        if name == "exec":
+            blocks.extend({"type": "tool_use", "name": "Bash",
+                           "input": {"command": command, "literal_batch": True}}
+                          for command in batched_cat_commands(raw))
     elif name == "Read":
         try:
             value = json.loads(raw)

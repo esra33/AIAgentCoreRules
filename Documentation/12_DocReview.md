@@ -161,7 +161,17 @@ bash GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/preview-control.sh sta
 bash GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/preview-control.sh stop
 ```
 
-Pass `--project /path/to/project` when running elsewhere. Start prints the existing URL if
+From a shared AIAgentCoreRules checkout, start one preview per host project:
+
+```bash
+bash Tools/doc-review/preview-control.sh start --project ../ChatGPTSDK
+bash Tools/doc-review/preview-control.sh start --project ../StoryEngine
+```
+
+Open the URL printed by each command. The previews use separate loopback ports. Pass
+the same `--project` path to `status` or `stop` to manage that project's preview independently.
+
+Start prints the existing URL if
 already running — unless any `Tools/doc-review/*.py` or `Tools/feature-state/*.py` file is newer
 than the server's recorded start time. Python never reloads modules, so start then stops the
 stale server, prints `restarted (tool code changed)`, and starts a fresh one (the port may change;

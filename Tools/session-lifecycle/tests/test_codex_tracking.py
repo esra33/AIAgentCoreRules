@@ -76,6 +76,25 @@ class CodexTrackingTests(unittest.TestCase):
         self.assertEqual(len(loads), 1)
         self.assertEqual(loads[0]["via"], "main · Bash")
 
+    def test_literal_batch_traces_only_existing_imported_files(self):
+        rules = self.root / "Ext/Layer/Rules"
+        rules.mkdir(parents=True)
+        for name in ("MetaRouter.md", "CoreTags.md"):
+            (rules / name).touch()
+        (self.root / "Outside.md").touch()
+        (self.root / "AGENTS.md").write_text("Use `Ext/Layer/Rules/MetaRouter.md`.")
+        mapping = ".map(async f=>text((await tools.exec_command({cmd:`cat '${f}'`})).output))"
+        source = ('await Promise.allSettled(["Ext/Layer/Rules/MetaRouter.md",'
+                  '"Ext/Layer/Rules/CoreTags.md","Ext/Layer/Rules/Missing.md","Outside.md"]'
+                  + mapping + ')')
+        self.write([{"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec",
+                    "input": source}}])
+        state = {"session_id": self.thread, "transcript_path": str(self.rollout)}
+        loads = lifecycle.router_trace(state, str(self.root))[1]
+        self.assertEqual([(Path(row["file"]).name, row["via"]) for row in loads],
+                         [("MetaRouter.md", "main · Bash"), ("CoreTags.md", "main · Bash")])
+        self.assertEqual(list(codex_transcript.batched_cat_commands('computedPaths' + mapping)), [])
+
     def test_end_to_end_set_note_compile_and_claude_regression(self):
         with self.rollout.open("a") as handle:
             for total in (100, 100, 175, 175):

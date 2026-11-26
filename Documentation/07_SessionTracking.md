@@ -322,7 +322,9 @@ Use the appropriate lane/title for the actual task. `compile --final` belongs at
 Session folders contain the agent type, notes, metrics and sanitized token reports. The existing
 session-support Codex parser supplies usage; cumulative token events must not be summed.
 Codex shell reads, including supported nested JavaScript exec commands, produce heuristic
-Bash rows in the router trace. Main-thread trace coverage does not imply complete child-agent
+Bash rows in the router trace. This includes literal Markdown path arrays mapped to a quoted
+`cat` call. The trace checks that each batched file exists under an imported rule root and
+does not evaluate computed JavaScript arguments. Main-thread trace coverage does not imply complete child-agent
 trace coverage. Detailed standardized-operation attribution and comparison charts remain
 unavailable for Codex rather than showing misleading zeros. Token reports may still include
 child-agent telemetry supported by session-support.

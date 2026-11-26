@@ -107,8 +107,8 @@ Two behaviours worth knowing:
 - Reads the generated `.csproj` files. **If you add or delete a `.cs` file, let Unity
   refresh once first** — a new file that is not yet in a `.csproj` will not be compiled,
   and the script says so when it detects one. `--include-new` attaches such files (from
-  the git changes) to the assembly Unity would put them in: nearest `.asmdef`, else the
-  predefined assemblies. It only picks up files git reports as changed (`git diff` plus
+  the git changes) to the assembly Unity would put them in: nearest `.asmdef` under
+  `Assets/` or an embedded package in `Packages/`, else the predefined assemblies. It only picks up files git reports as changed (`git diff` plus
   `ls-files --others --exclude-standard`): a new `.cs` file in a gitignored folder (such as
   `Assets/GitIgnoreAssets/`) is not compiled, so its types show as CS0246, until Unity
   regenerates the `.csproj` (focus the Editor once).

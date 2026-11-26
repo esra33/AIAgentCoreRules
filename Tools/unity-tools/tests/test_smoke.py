@@ -164,6 +164,32 @@ class FakeProjectTests(unittest.TestCase):
         self.assertEqual(Project(str(worktree), str(main)).missing_asmdef_references(),
                          [("User", "Lib")])
 
+    def test_new_worktree_source_attaches_to_embedded_package_assembly(self):
+        sys.path.insert(0, str(TOOL_DIR))
+        from _unityproj import Project
+        from typecheck import attach_new_files
+
+        main = self.root
+        with tempfile.TemporaryDirectory(prefix="unity-tools-wt-") as folder:
+            worktree = Path(folder)
+            package = Path("Packages/com.example.agent/Runtime")
+            for checkout in (main, worktree):
+                runtime = checkout / package
+                runtime.mkdir(parents=True)
+                (runtime / "Agent.asmdef").write_text('{"name": "Agent"}')
+                (runtime / "Existing.cs").write_text("class Existing {}")
+            (main / "Agent.csproj").write_text(
+                f'<Project><ItemGroup><Compile Include="{package}/Existing.cs" />'
+                '</ItemGroup></Project>'
+            )
+            source = worktree / package / "New.cs"
+            source.write_text("class New : Existing {}")
+
+            project = Project(str(worktree), str(main))
+            self.assertTrue(project.is_worktree)
+            self.assertEqual(attach_new_files(project, [str(source)]), [(str(source), "Agent")])
+            self.assertIn(str(source.resolve()), project.assemblies["Agent"].sources)
+
     def test_usages_finds_member_call(self):
         result = run("usages.py", "--project", str(self.root), "IThing", "--members", "Run")
         self.assertEqual(result.returncode, 0, result.stderr)

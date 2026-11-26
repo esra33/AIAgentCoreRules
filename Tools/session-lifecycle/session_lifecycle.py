@@ -452,6 +452,8 @@ def router_trace(state, project_dir):
                         target = os.path.expanduser(target)
                         candidates = [target] if os.path.isabs(target) else [os.path.join(b, target) for b in bases]
                         absolute = next((c for c in candidates if os.path.isfile(c)), candidates[-1])
+                        if tool_input.get("literal_batch") and not os.path.isfile(absolute):
+                            continue
                         real = os.path.realpath(absolute)
                         root = next((r for r in roots if real.startswith(os.path.realpath(r) + os.sep)), None)
                         if root is None:

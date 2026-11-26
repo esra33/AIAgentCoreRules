@@ -102,6 +102,7 @@ behaviour:
 secrets:
   - "[SECRET] Never print, echo, log or slice any part of a credential value (token, password, key) — not a prefix, not a length-plus-prefix."
   - "[SECRET] Diagnose a credential with booleans only: e.g. print(value.startswith('ATATT') and len(value) > 100)."
+  - "[SECRET] For process discovery, output only PIDs and executable names. If project identity is needed, report only whether it matches. Keep full process arguments and environment variables out of tool output."
   - "[SECRET] If a fragment was exposed anyway, tell the engineer at once and recommend rotating it."
 ```
 

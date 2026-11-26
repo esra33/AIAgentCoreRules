@@ -7,6 +7,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -14,6 +15,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
+from urllib.request import urlopen
 
 TOOL_DIR = Path(__file__).resolve().parents[1]
 if str(TOOL_DIR) not in sys.path:
@@ -81,6 +83,48 @@ class RestartTests(unittest.TestCase):
         state = json.loads((self.project / '.doc-review' / 'server.json').read_text())
         self.assertEqual(restarted[1], state['url'])
         self.assertIn('started', state)
+
+
+class ParallelProjectTests(unittest.TestCase):
+    def test_shared_launcher_manages_two_projects_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            projects = [root / 'First project', root / 'Second project']
+            environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', SESSION_FEATURES_ROOT='')
+
+            def command(action, project):
+                return ['bash', str(TOOL_DIR / 'preview-control.sh'), action, '--project', str(project)]
+
+            def run(action, project):
+                return subprocess.run(command(action, project), env=environment, cwd=root,
+                                      capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+
+            def health(url):
+                with urlopen(url + 'api/health', timeout=3) as response:
+                    return json.load(response)
+
+            for project in projects:
+                project.mkdir()
+            try:
+                with subprocess.Popen(command('start', projects[0]), env=environment, cwd=root,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as first:
+                    second_url = run('start', projects[1])
+                    stdout, stderr = first.communicate(timeout=20)
+                    self.assertEqual(first.returncode, 0, stderr)
+                first_url = stdout.strip()
+                self.assertNotEqual(first_url, second_url)
+                identities = [health(first_url), health(second_url)]
+                self.assertNotEqual(identities[0]['pid'], identities[1]['pid'])
+                for project, url, identity in zip(projects, (first_url, second_url), identities):
+                    self.assertEqual(identity['project'], str(project))
+                    self.assertEqual(run('start', project), url)
+                self.assertEqual(run('stop', projects[0]), 'Stopped')
+                self.assertEqual(run('status', projects[0]), 'Stopped')
+                self.assertEqual(run('status', projects[1]), 'Running: ' + second_url)
+                self.assertEqual(health(second_url), identities[1])
+            finally:
+                for project in projects:
+                    run('stop', project)
 
 
 if __name__ == '__main__':
