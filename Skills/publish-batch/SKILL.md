@@ -48,7 +48,7 @@ subcommands:
   plan:    "Start a task: worktree, branch, batch plan."
   publish: "Commit, push and open the PR for the current batch (or push fixes to its open PR)."
   status:  "Check the open PR; on merge, sync the branch and move to the next batch."
-  finish:  "After the last batch merged: remove the task's worktree."
+  finish:  "Record completion after the final batch merges, then remove the task worktree."
   default: "No subcommand → status if the task has an open_pr, else publish if it has a plan, else plan."
 ```
 
@@ -85,9 +85,11 @@ status:
 
 finish:
   - "Only when merged == len(plan) and open_pr is null."
+  - "Record: Checkpoint done gets '<task_id> published (<N> batches, PRs #…)'; next = the next task."
+  - "When feature state is tracked and all integration goes through PRs, use /publish-work from the task worktree to open a docs-only PR against the recorded base. Include the final merged-batch record, completed task status, next-task checkpoint, regenerated Progress Markdown, and any matching task-status documentation. Omit the publisher's feature batch fields because this PR follows the final implementation batch."
+  - "Keep the task worktree and branch until the closeout PR is verified merged and the final checkpoint is on the base."
   - "ExitWorktree(action: remove) — or, if this session did not enter it, git worktree remove .claude/worktrees/<worktree>. Delete the local branch. Ask before git push origin --delete <branch> (GitHub may already have deleted it)."
   - "Tell the engineer to pull <base> in their main checkout before the next task."
-  - "Record: Checkpoint done gets '<task_id> published (<N> batches, PRs #…)'; next = the next task."
 ```
 
 ## Change table
