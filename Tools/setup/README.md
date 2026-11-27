@@ -49,7 +49,9 @@ For automation, use `--metadata-location externals` or `--metadata-location proj
 option previews the new files without creating them. Noninteractive installs require the option.
 
 The core layer stays under the externals folder and is applied first. Host layers are read from
-there or from root `AIMetaData/`. Merge rules:
+there, root `AIMetaData/`, or `Documentation/AIMetaData/`. A documentation-layer folder is
+discovered directly on reinstall; it needs no root-level symlink. A symlink to the same folder
+is accepted, while separate host layers are reported as a conflict. Merge rules:
 objects merge key by key, lists of plain values are unioned, other values are set, and hooks are
 matched by command — an existing hook with the same command is left alone. `statusLine` follows
 the same spirit at a coarser grain: set only when the key is wholly absent, so an engineer's own
