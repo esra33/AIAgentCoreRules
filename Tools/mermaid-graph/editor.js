@@ -17,6 +17,22 @@ const arrows = {
   association: ["vee", "filled"],
   dependency: ["vee", "filled"],
 };
+const relationshipTypes = $("relationship-types");
+const enabledRelationships = new Set(Object.keys(arrows));
+for (const kind of enabledRelationships) {
+  const label = document.createElement("label");
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.checked = true;
+  toggle.onchange = () => {
+    if (toggle.checked) enabledRelationships.add(kind);
+    else enabledRelationships.delete(kind);
+    filterGraph();
+    renderDetail();
+  };
+  label.append(toggle, kind[0].toUpperCase() + kind.slice(1));
+  relationshipTypes.querySelector(".actions").append(label);
+}
 const edgeStyle = {
   "width": 1.5, "line-color": "#839ab4", "curve-style": "bezier",
   "source-arrow-color": "#839ab4", "target-arrow-color": "#839ab4",
@@ -163,13 +179,14 @@ function renderDetail() {
     );
     list(nodeKinds[record.kind || "class"] + " members",
       record.members.length ? record.members.map((member) => member.text) : ["No members"]);
-    list("Relationships", attached.length ? attached.map((item) => {
+    const visible = attached.filter((item) => enabledRelationships.has(item.kind));
+    list("Relationships", visible.length ? visible.map((item) => {
       const button = document.createElement("button");
       button.textContent = describe(item);
       button.title = "Line " + item.startLine;
       button.onclick = () => select({ line: item.startLine });
       return button;
-    }) : ["No relationships"]);
+    }) : [attached.length ? "No matching relationships" : "No relationships"]);
   } else if (edge) {
     $("selection").textContent = edge.kind[0].toUpperCase() + edge.kind.slice(1);
     $("detail").textContent = describe(edge);
@@ -186,6 +203,7 @@ function renderDetail() {
 
 function select(selection) {
   state.selection = selection;
+  filterGraph();
   if (cy) {
     cy.elements(":selected").unselect();
     const id = selection?.name ? nodeId(selection.name) : edgeId(selection?.line);
@@ -210,18 +228,24 @@ function fit() {
 
 function filterGraph() {
   $("focus-controls").hidden = !state.focus;
+  const selected = state.selection?.name;
+  relationshipTypes.hidden = !selected && !state.focus;
   if (!cy) return;
   cy.batch(() => {
     cy.elements().removeClass("filtered focus-root");
-    if (!state.focus) return;
+    const disabledEdges = cy.edges().filter((edge) => !enabledRelationships.has(edge.data("kind")));
+    if (!state.focus) {
+      if (selected) cy.getElementById(nodeId(selected)).connectedEdges().intersect(disabledEdges).addClass("filtered");
+      return;
+    }
     const root = cy.getElementById(nodeId(state.focus)).addClass("focus-root");
     let nodes = root;
     let frontier = root;
     for (let level = 0; level < Number($("depth").value) && frontier.length; level++) {
-      frontier = frontier.neighborhood("node").difference(nodes);
+      frontier = frontier.connectedEdges().difference(disabledEdges).connectedNodes().difference(nodes);
       nodes = nodes.union(frontier);
     }
-    const visibleEdges = nodes.connectedEdges().filter((edge) =>
+    const visibleEdges = nodes.connectedEdges().difference(disabledEdges).filter((edge) =>
       nodes.contains(edge.source()) && nodes.contains(edge.target()));
     cy.elements().difference(nodes.union(visibleEdges)).addClass("filtered");
   });
@@ -265,14 +289,13 @@ function renderGraph(graph, fitView = false, reuseLayout = false) {
       for (const [name, position] of state.manualPositions) cy.getElementById(nodeId(name)).position(position);
     }
   }
-  filterGraph();
-  if (fitView || (!oldGraph?.classes.length && graph.classes.length)) fit();
   const diagnostics = graph.diagnostics;
   $("diagnostics").hidden = !diagnostics.length;
   $("diagnostics").textContent = diagnostics.length ?
     ["Visual edits are disabled. You can edit and save Mermaid source.",
       ...diagnostics.map((item) => "Line " + item.line + " · " + item.message)].join("\n") : "";
   select(state.selection);
+  if (fitView || (!oldGraph?.classes.length && graph.classes.length)) fit();
   search(false);
 }
 
@@ -282,7 +305,6 @@ cy?.on("tap", (event) => { if (event.target === cy) select(null); });
 function focusClass(name) {
   state.focus = name;
   select({ name });
-  filterGraph();
   fit();
 }
 cy?.on("dbltap", "node", (event) => focusClass(event.target.data("name")));
