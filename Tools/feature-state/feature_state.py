@@ -327,6 +327,12 @@ def update_state(feature_dir, operation, payload, expected_revision):
             state["milestone_reports"] = reports
             if path not in state["artifacts"]:
                 state["artifacts"].append(path)
+        elif operation == "diagram-links":
+            tasks = {task["id"]: task for task in state["tasks"]}
+            for task_id, links in payload.items():
+                if task_id not in tasks:
+                    raise StateError(f"unknown task: {task_id}")
+                tasks[task_id]["diagram_nodes"] = copy.deepcopy(links)
         elif operation in {"pr", "batch", "artifact", "task"}:
             if operation == "pr":
                 phase, number = payload["phase"], payload["number"]

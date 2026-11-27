@@ -42,7 +42,7 @@ MEMBER_MODS = (
 )
 
 _TYPE_RE = re.compile(
-    r"\b(?P<kind>class|interface|struct|enum|record)\s+"
+    r"\b(?P<kind>record(?:\s+(?:class|struct))?|class|interface|struct|enum)\s+"
     r"(?P<name>[A-Za-z_]\w*)"
     r"\s*(?P<generic><.*?>)?"
 )
@@ -57,7 +57,7 @@ _ATTR_LINE_RE = re.compile(r"^\s*\[.*\]\s*$")
 class TypeDecl:
     __slots__ = ("name", "arity", "namespace", "container", "kind", "line", "end_line",
                  "signature", "access", "is_abstract", "is_sealed", "is_static", "is_partial",
-                 "bases", "members", "attributes")
+                 "bases", "members", "attributes", "generic_parameters", "containing_types")
 
     def __init__(self, **kw):
         for slot in self.__slots__:
@@ -74,7 +74,7 @@ class TypeDecl:
 class MemberDecl:
     __slots__ = ("name", "kind", "signature", "line", "end_line", "access", "is_static",
                  "is_abstract", "is_virtual", "is_override", "is_async", "attributes",
-                 "type_refs")
+                 "type_refs", "declared_types", "header", "generic_parameters")
 
     def __init__(self, **kw):
         for slot in self.__slots__:
@@ -301,18 +301,29 @@ def _gather(clean_lines, start, col, stops):
     """Join lines from (start, col) until a stop character. Returns (text, end_line)."""
     chunk, i = [], start
     first = clean_lines[start][col:]
+    angle = paren = square = 0
+    initializer = False
     while i < len(clean_lines):
         segment = first if i == start else clean_lines[i]
         cut = None
-        angle = 0
         for pos, ch in enumerate(segment):
-            if ch == "<":
+            if ch == "<" and not (initializer or paren or square):
                 angle += 1
-            elif ch == ">":
+            elif ch == ">" and not (paren or square):
                 angle = max(0, angle - 1)
-            elif ch in stops and not angle:
+            elif ch == "(":
+                paren += 1
+            elif ch == ")":
+                paren = max(0, paren - 1)
+            elif ch == "[":
+                square += 1
+            elif ch == "]":
+                square = max(0, square - 1)
+            elif ch in stops and not (angle or paren or square):
                 cut = pos
                 break
+            elif ch == "=" and not (angle or paren or square):
+                initializer = True
         if cut is not None:
             chunk.append(segment[:cut])
             return " ".join(chunk), i
@@ -410,7 +421,7 @@ class SourceParser:
             if i <= consumed_until:
                 continue
             stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
+            if not stripped or stripped == "{" or stripped.startswith("#"):
                 continue
 
             # Attributes: a line of its own is held for the next declaration; a leading
@@ -441,7 +452,7 @@ class SourceParser:
             ns_match = _NS_RE.match(line)
             if ns_match:
                 ns_stack.append((ns_match.group("name"),
-                                 here if ns_match.group("brace") == "{" else -1))
+                                 -1 if ns_match.group("brace") == ";" else here))
                 # Do not skip the rest of the line: `namespace X { class Y { } }` is
                 # legal and would otherwise vanish entirely. Blank the namespace prefix
                 # so column positions still line up, then fall through to type
@@ -496,25 +507,22 @@ class SourceParser:
         if residue.strip():
             return None
 
-        kind = match.group("kind")
+        kind = " ".join(match.group("kind").split())
+        kind = {"record class": "record", "record struct": "struct"}.get(kind, kind)
         name = match.group("name")
         generic = match.group("generic")
-
-        # `record class Foo` / `record struct Foo`
-        if kind == "record" and name in ("class", "struct"):
-            remainder = line[match.end("name"):]
-            follow = _TYPE_RE.search("record " + remainder)
-            if follow:
-                name = follow.group("name")
-                generic = follow.group("generic")
 
         tail_start = match.end()
         body, end_line = _gather(clean_lines, i, tail_start, "{;")
 
         bases = []
-        if ":" in body:
-            base_text = body.split(":", 1)[1]
-            base_text = re.split(r"\bwhere\b", base_text)[0]
+        base_text = re.split(r"\bwhere\b", body)[0].strip()
+        if base_text.startswith("("):
+            close = _find_close_paren(base_text, 0)
+            if close >= 0:
+                base_text = base_text[close + 1:].lstrip()
+        if base_text.startswith(":"):
+            base_text = base_text[1:]
             for raw in _split_top_level(base_text):
                 simple = _simple_name(raw)
                 if simple and simple not in KEYWORDS:
@@ -526,8 +534,11 @@ class SourceParser:
         return TypeDecl(
             name=name,
             arity=_arity(generic),
+            generic_parameters=[part.split()[-1] for part in _split_top_level(generic[1:-1])]
+            if generic else [],
             namespace=namespace,
             container=container,
+            containing_types=tuple((t.name, t.arity) for t, _ in type_stack),
             kind=kind,
             line=i + 1,
             signature=" ".join((line[:tail_start] + " " + body).split())[:600],
@@ -552,7 +563,7 @@ class SourceParser:
                 return None
             return MemberDecl(
                 name=name.group(1), kind="enum_member",
-                signature=stripped.rstrip(",").strip(), line=i + 1,
+                signature=stripped.rstrip(",").strip(), header=name.group(1), line=i + 1,
                 access=None, is_static=0, is_abstract=0, is_virtual=0,
                 is_override=0, is_async=0,
             ), i
@@ -578,26 +589,28 @@ class SourceParser:
         if is_delegate:
             rest = re.sub(r"^\s*delegate\b", "", rest)
 
-        paren = rest.find("(")
+        tuple_end = _find_close_paren(rest, 0) if rest.startswith("(") else -1
+        paren = rest.find("(", tuple_end + 1)
         name, kind = None, None
         declared_type_text, return_type_text, params_text = None, None, None
+        generic_parameters = []
 
         if paren > 0:
             head = rest[:paren].strip()
-            tokens = head.replace("\t", " ").split()
-            if tokens:
-                candidate = tokens[-1]
-                candidate = candidate.split("<", 1)[0]
+            method = re.search(r"(?:^|\s)([A-Za-z_]\w*)(?:\s*<([^<>]+)>)?$", head)
+            if method:
+                candidate = method[1]
+                prefix = head[:method.start()].strip()
+                generic_parameters = _split_top_level(method[2] or "")
                 if re.fullmatch(r"[A-Za-z_]\w*", candidate) and candidate not in KEYWORDS:
                     name = candidate
                     if is_delegate:
                         kind = "delegate"
-                    elif len(tokens) == 1 and candidate == owner.name:
+                    elif not prefix and candidate == owner.name:
                         kind = "ctor"
                     else:
                         kind = "method"
-                    if len(tokens) > 1:
-                        return_type_text = " ".join(tokens[:-1])
+                    return_type_text = prefix
                     close = _find_close_paren(rest, paren)
                     if close > paren:
                         params_text = rest[paren + 1:close]
@@ -621,12 +634,15 @@ class SourceParser:
             kind = "event" if is_event else ("property" if has_accessor else "field")
 
         type_refs = []
+        declared_types = []
         if kind in ("field", "property") and declared_type_text:
+            declared_types.append(declared_type_text)
             type_refs = [
                 {"name": n, "raw": r, "member_kind": kind, "is_collection": int(c), "position": None}
                 for n, r, c in _unwrap_type(declared_type_text)]
         elif kind in ("method", "delegate", "ctor"):
             if return_type_text:
+                declared_types.append(return_type_text)
                 type_refs.extend(
                     {"name": n, "raw": r, "member_kind": "return", "is_collection": int(c), "position": None}
                     for n, r, c in _unwrap_type(return_type_text))
@@ -635,6 +651,7 @@ class SourceParser:
                     ptokens = _clean_param(raw_param).split()
                     if len(ptokens) < 2:
                         continue
+                    declared_types.append(" ".join(ptokens[:-1]))
                     type_refs.extend(
                         {"name": n, "raw": r, "member_kind": "param", "is_collection": int(c), "position": position}
                         for n, r, c in _unwrap_type(" ".join(ptokens[:-1])))
@@ -657,4 +674,7 @@ class SourceParser:
             is_override=int(bool(re.search(r"\boverride\b", mod_text))),
             is_async=int(bool(re.search(r"\basync\b", mod_text))),
             type_refs=type_refs,
+            declared_types=declared_types,
+            header=full,
+            generic_parameters=generic_parameters,
         ), end_line

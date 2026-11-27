@@ -62,3 +62,18 @@ The resolver honors `SESSION_FEATURES_ROOT`, then `paths.features` in the projec
 changes do not relocate existing features. Move complete feature directories explicitly,
 preserving `state.json`, generated Progress Markdown, `review.json`, relative anchors, and
 existing Unity `.meta` files. Keep `.feature-state.lock` local and out of Git.
+
+## Backfill class diagram progress
+
+From a host project with the shared tools under `GitIgnoreExternals`:
+
+```bash
+bash GitIgnoreExternals/AIAgentCoreRules/Tools/feature-state/backfill_diagram_progress.sh \
+  Assets/Documentation/Features/AgentSDK
+```
+
+The command lists proposed links. Add `--apply` to save them in one revision-checked
+update. It matches C# filenames from task rows and task baseline lists in the registered
+TDD to explicit class IDs in the registered Mermaid class diagrams. Existing links and
+task statuses are preserved. Use the `task` command for relationships that the TDD
+doesn't express as a matching filename.

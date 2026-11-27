@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mermaid class graph</title>
+  <link rel="stylesheet" href="/editor.css">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <script defer src="/editor.js"></script>
+</head>
+<body>
+  <header>
+    <div><h1>Mermaid class graph</h1><div id="file"></div></div>
+    <div class="actions">
+      <button id="toggle-nodes" aria-controls="node-browser" aria-expanded="true">Nodes</button>
+      <button id="toggle-details" aria-controls="details-panel" aria-expanded="true">Details</button>
+      <button id="toggle-source" aria-controls="source-panel" aria-expanded="true">Source</button>
+      <button id="reload" disabled>Reload file</button><button id="save" disabled>Save</button>
+    </div>
+  </header>
+  <div class="feedback">
+    <div id="status" role="status">Loading diagram…</div>
+    <div id="error" role="alert" hidden></div>
+    <div id="diagnostics" hidden></div>
+  </div>
+  <main>
+    <aside id="node-browser" aria-labelledby="node-browser-title">
+      <h2 id="node-browser-title">Nodes</h2>
+      <ul id="node-list"></ul>
+    </aside>
+    <section class="graph-panel" aria-label="Graph workspace">
+      <div class="toolbar">
+        <label for="search">Find node</label>
+        <input id="search" type="search" autocomplete="off" placeholder="Node name">
+        <button id="fit">Fit</button>
+        <button id="focus" disabled>Focus selected</button>
+        <div id="focus-controls" class="actions" hidden>
+          <label for="depth">Depth</label>
+          <select id="depth"><option selected>1</option><option>2</option><option>3</option><option>4</option></select>
+          <button id="full">Full graph</button>
+        </div>
+        <button id="add-class" data-edit disabled>Add node</button>
+        <button id="add-edge" data-edit disabled>Add relationship</button>
+        <button id="link-tool" aria-pressed="false" disabled>Draw relationship</button>
+        <select id="draw-arrow" aria-label="Relationship type and direction for dragging" disabled></select>
+        <select id="matches" aria-label="Matching nodes" hidden></select>
+      </div>
+      <div id="workspace">
+        <div id="cy" aria-label="Interactive class graph"></div>
+        <div id="link-preview" hidden></div>
+      </div>
+      <div id="graph-note" role="status"></div>
+    </section>
+    <aside id="right-panel">
+      <section id="details-panel" class="details" aria-label="Selection details">
+        <div class="section-title"><h2 id="selection">Selection</h2><div id="selection-actions" class="actions"></div></div>
+        <div id="detail">Select a class or relationship.</div>
+      </section>
+      <section id="source-panel" class="source-panel">
+        <label for="source">Mermaid source</label>
+        <textarea id="source" spellcheck="false" autocapitalize="off" wrap="off" disabled></textarea>
+      </section>
+    </aside>
+  </main>
+  <dialog id="class-dialog">
+    <form id="class-form">
+      <h2 id="class-title">Add node</h2>
+      <label>Node ID<input name="newName" required pattern="[A-Za-z_][A-Za-z0-9_]*" autofocus></label>
+      <label id="new-kind">Node type<select name="kind">
+        <option value="class">Class</option><option value="interface">Interface</option>
+        <option value="struct">Struct</option><option value="enum">Enum</option>
+      </select></label>
+      <div class="actions"><button type="button" data-close>Cancel</button><button type="submit">Apply</button></div>
+    </form>
+  </dialog>
+  <dialog id="edge-dialog">
+    <form id="edge-form">
+      <h2 id="edge-title">Add relationship</h2>
+      <div class="fields">
+        <label>Left class<select name="left" required autofocus></select></label>
+        <label>Right class<select name="right" required></select></label>
+        <label>Left multiplicity<input name="leftMultiplicity" placeholder="0..*"></label>
+        <label>Right multiplicity<input name="rightMultiplicity" placeholder="1"></label>
+      </div>
+      <label>Relationship type and direction<select name="arrow">
+        <option value="&lt;|--">Inheritance ←</option><option value="--|&gt;">Inheritance →</option>
+        <option value="&lt;|..">Realization ←</option><option value="..|&gt;">Realization →</option>
+        <option value="*--">Composition ◆ left</option><option value="--*">Composition ◆ right</option>
+        <option value="o--">Aggregation ◇ left</option><option value="--o">Aggregation ◇ right</option>
+        <option value="&lt;--">Association ←</option><option value="--&gt;">Association →</option>
+        <option value="&lt;..">Dependency ←</option><option value="..&gt;">Dependency →</option>
+      </select></label>
+      <label>Label<input name="label"></label>
+      <div class="actions"><button type="button" data-close>Cancel</button><button type="submit">Apply</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

@@ -173,6 +173,16 @@ the same `--project` path to `status` or `stop` to manage that project's preview
 
 Run `bash Tools/doc-review/preview-control.sh list` from the shared checkout to see active
 project previews across checkouts, including their PID, URL and absolute project path.
+To stop a listed preview, pass its PID, IP and port, or full URL to `stop`.
+
+```bash
+bash Tools/doc-review/preview-control.sh stop 12345
+bash Tools/doc-review/preview-control.sh stop 127.0.0.1:54321
+bash Tools/doc-review/preview-control.sh stop http://127.0.0.1:54321/
+```
+
+A bare IP works when only one preview matches it. With no target, `stop` uses the
+current project or the project specified by `--project`.
 
 Start prints the existing URL if
 already running — unless any `Tools/doc-review/*.py` or `Tools/feature-state/*.py` file is newer

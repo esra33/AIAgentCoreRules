@@ -31,20 +31,39 @@ def healthy(state, project):
     return identity.get('project') == str(project) and identity.get('pid') == state.get('pid')
 
 
-def list_previews():
+def active_previews():
     from doc_review import running_servers
 
-    found = False
     for server in running_servers('serve-project'):
         if not server['port']:
             continue
         url = f"http://127.0.0.1:{server['port']}/"
         identity = server_identity(url)
         if identity.get('pid') == server['pid'] and identity.get('project'):
-            print(f"pid {server['pid']}  {url}  {identity['project']}")
-            found = True
-    if not found:
+            yield {'pid': server['pid'], 'url': url, 'project': identity['project']}
+
+
+def list_previews():
+    previews = list(active_previews())
+    for preview in previews:
+        print(f"pid {preview['pid']}  {preview['url']}  {preview['project']}")
+    if not previews:
         print('No active project previews')
+
+
+def stop_preview(target):
+    target = target.removeprefix('http://').rstrip('/')
+    matches = [
+        preview for preview in active_previews()
+        if target in (str(preview['pid']), '127.0.0.1',
+                      preview['url'].removeprefix('http://').rstrip('/'))
+    ]
+    if not matches:
+        raise RuntimeError(f'No active project preview matches {target}')
+    if len(matches) > 1:
+        raise RuntimeError(f'Multiple previews match {target}. Use the PID or include the port.')
+    preview = matches[0]
+    control('stop', Path(preview['project']), preview)
 
 
 def tool_code_mtime(tool_dirs=None):
@@ -60,7 +79,7 @@ def stale(state, state_path, tool_dirs=None):
     return tool_code_mtime(tool_dirs) > started
 
 
-def stop(state, project, state_path):
+def stop(state, project, state_path=None):
     os.kill(state['pid'], signal.SIGTERM)
     for _ in range(40):
         if not healthy(state, project):
@@ -68,10 +87,11 @@ def stop(state, project, state_path):
         time.sleep(.1)
     else:
         raise RuntimeError('Preview did not stop; runtime metadata retained')
-    state_path.unlink(missing_ok=True)
+    if state_path is not None:
+        state_path.unlink(missing_ok=True)
 
 
-def control(action, project):
+def control(action, project, target=None):
     project = project.resolve()
     runtime = project / '.doc-review'
     os.umask(0o077)
@@ -84,6 +104,13 @@ def control(action, project):
             state = json.loads(state_path.read_text())
         except (OSError, ValueError):
             state = {}
+        if target is not None:
+            if not healthy(target, project):
+                raise RuntimeError('The selected preview is no longer running')
+            owns_state = state.get('pid') == target['pid'] and state.get('url') == target['url']
+            stop(target, project, state_path if owns_state else None)
+            print('Stopped')
+            return
         running = healthy(state, project)
         if action == 'status':
             print('Running: ' + state['url'] if running else 'Stopped')
@@ -125,13 +152,18 @@ def control(action, project):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('start', 'stop', 'status', 'list'))
-    parser.add_argument('--project', default='.')
-    args = parser.parse_args()
+    parser.add_argument('target', nargs='?', help='PID, IP:port, or URL from list (stop only)')
+    parser.add_argument('--project')
+    args = parser.parse_intermixed_args()
+    if args.target and (args.action != 'stop' or args.project is not None):
+        parser.error('a target is only accepted with stop and cannot be combined with --project')
     try:
         if args.action == 'list':
             list_previews()
+        elif args.target:
+            stop_preview(args.target)
         else:
-            control(args.action, Path(args.project))
+            control(args.action, Path(args.project or '.'))
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         parser.exit(1, str(error) + '\n')
 

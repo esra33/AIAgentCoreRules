@@ -92,14 +92,16 @@ class ParallelProjectTests(unittest.TestCase):
             projects = [root / 'First project', root / 'Second project']
             environment = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', SESSION_FEATURES_ROOT='')
 
-            def command(action, project=None):
+            def command(action, project=None, target=None):
                 args = ['bash', str(TOOL_DIR / 'preview-control.sh'), action]
+                if target is not None:
+                    args.append(target)
                 if project is not None:
                     args.extend(['--project', str(project)])
                 return args
 
-            def run(action, project=None):
-                return subprocess.run(command(action, project), env=environment, cwd=root,
+            def run(action, project=None, target=None):
+                return subprocess.run(command(action, project, target), env=environment, cwd=root,
                                       capture_output=True, text=True, check=True, timeout=20).stdout.strip()
 
             def health(url):
@@ -125,13 +127,19 @@ class ParallelProjectTests(unittest.TestCase):
                     self.assertEqual(run('start', project), url)
                     expected.append(f"pid {identity['pid']}  {url}  {project}")
                     self.assertIn(expected[-1], previews)
-                self.assertEqual(run('stop', projects[0]), 'Stopped')
+                ambiguous = subprocess.run(command('stop', target='127.0.0.1'),
+                                           env=environment, cwd=root, capture_output=True, text=True, timeout=20)
+                self.assertNotEqual(ambiguous.returncode, 0)
+                self.assertIn('Multiple previews match', ambiguous.stderr)
+                self.assertEqual(run('stop', target=str(identities[0]['pid'])), 'Stopped')
                 previews = run('list').splitlines()
                 self.assertNotIn(expected[0], previews)
                 self.assertIn(expected[1], previews)
                 self.assertEqual(run('status', projects[0]), 'Stopped')
                 self.assertEqual(run('status', projects[1]), 'Running: ' + second_url)
                 self.assertEqual(health(second_url), identities[1])
+                self.assertEqual(run('stop', target=second_url), 'Stopped')
+                self.assertFalse((projects[1] / '.doc-review' / 'server.json').exists())
             finally:
                 for project in projects:
                     run('stop', project)
