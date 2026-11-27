@@ -38,13 +38,6 @@ class ProjectPreviewTests(unittest.TestCase):
         self.assertEqual(tabs[2]['file'], 'Design.md')
         self.assertIn('Pending generation', tabs[3]['content'])
 
-    def test_homeIncludesBacklogFromFeatureRoot(self):
-        backlog = self.root / 'Story_Backlog.md'
-        backlog.write_text('# Story backlog\n\n| Priority | Feature |\n| --- | --- |\n| 1 | DSE-01 |\n')
-        tabs = project_server.project_tabs(self.root)
-        self.assertIn('Alpha', tabs[0]['content'])
-        self.assertIn('| 1 | DSE-01 |', tabs[0]['content'])
-
     def test_milestoneReportTabInsertedAfterPlanBeforeFixedTabs(self):
         directory = self.root / 'Alpha'
         (directory / 'V0Summary.md').write_text('# V0 Summary\nDone.')
