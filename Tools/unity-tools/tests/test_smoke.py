@@ -89,6 +89,14 @@ class FakeProjectTests(unittest.TestCase):
         self.assertIn("Thing", result.stdout)
         self.assertTrue((self.root / "Library" / "codeindex.sqlite").is_file())
 
+    def test_unity_cli_matches_index_and_usages_compatibility_paths(self):
+        for command, arguments in (("index", ("--project", str(self.root), "where", "Thing")),
+                                   ("usages", ("--project", str(self.root), "IThing"))):
+            canonical = run("unity.py", command, *arguments)
+            shim = run({"index": "codeindex.py", "usages": "usages.py"}[command], *arguments)
+            self.assertEqual(canonical.returncode, 0, canonical.stderr)
+            self.assertEqual(canonical.stdout, shim.stdout)
+
     def test_codeindex_stays_fresh_with_symlinked_folder_outside_root(self):
         # A folder symlinked into Assets/ from outside the project is stored as ../X.cs;
         # it must not be removed and re-added on every refresh.

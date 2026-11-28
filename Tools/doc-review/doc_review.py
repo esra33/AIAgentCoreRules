@@ -51,6 +51,16 @@ def cmd_serve_project(args):
     serve_project(Path(args.project), features_root=args.features_root, port=args.port, open_browser=args.open)
 
 
+def cmd_preview(args):
+    from preview_control import main as preview_main
+    arguments = [args.action]
+    if args.target:
+        arguments.append(args.target)
+    if args.project:
+        arguments.extend(["--project", args.project])
+    preview_main(arguments)
+
+
 def cmd_comments(args: argparse.Namespace) -> None:
     doc_path = Path(args.doc)
     base_dir = doc_path if doc_path.is_dir() else doc_path.parent
@@ -368,6 +378,12 @@ def main() -> None:
     project_parser.add_argument("--port", type=int)
     project_parser.add_argument("--open", action="store_true")
     project_parser.set_defaults(func=cmd_serve_project)
+
+    preview_parser = subparsers.add_parser("preview", help="Manage persistent project preview servers")
+    preview_parser.add_argument("action", choices=("start", "stop", "status", "list"))
+    preview_parser.add_argument("target", nargs="?", help="PID, IP:port, or URL for stop")
+    preview_parser.add_argument("--project", help="project root (default: current directory)")
+    preview_parser.set_defaults(func=cmd_preview)
 
     args = parser.parse_args()
     args.func(args)

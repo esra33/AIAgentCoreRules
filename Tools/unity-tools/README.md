@@ -27,6 +27,19 @@ Every script must:
 
 ## Running them
 
+The canonical entry point groups the three project C# engines under one CLI:
+
+```bash
+python3 Tools/unity-tools/unity.py index where LivesManager
+python3 Tools/unity-tools/unity.py typecheck --changed
+python3 Tools/unity-tools/unity.py usages LivesManager
+```
+
+`index`, `typecheck`, and `usages` remain separate engines. `unitysource.py`
+is independent because it reads decompiled Unity assemblies, not project C#.
+The former `codeindex.py`, `typecheck.py`, and `usages.py` paths are thin
+compatibility shims for installed hooks and existing callers.
+
 Call a script by its **literal path** from the project root, one plain command per call:
 
 ```bash

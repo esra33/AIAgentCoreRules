@@ -159,6 +159,6 @@ then commit those with the documents. Ignore runtime `.feature-state.lock` files
 compatibility symlink as a second configured document location.
 
 After editing feature paths or relocating feature folders, explicitly stop and start the
-persistent preview with `preview-control.sh stop`, then `preview-control.sh start`. Calling
+persistent preview with `doc_review.py preview stop`, then `doc_review.py preview start`. Calling
 `start` alone reuses a healthy server: automatic restart watches preview/feature-state Python
 files, not project configuration or the setup resolver.

@@ -149,12 +149,12 @@ def control(action, project, target=None):
         raise RuntimeError('Preview startup failed; see ' + str(log_path))
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=('start', 'stop', 'status', 'list'))
     parser.add_argument('target', nargs='?', help='PID, IP:port, or URL from list (stop only)')
     parser.add_argument('--project')
-    args = parser.parse_intermixed_args()
+    args = parser.parse_intermixed_args(argv)
     if args.target and (args.action != 'stop' or args.project is not None):
         parser.error('a target is only accepted with stop and cannot be combined with --project')
     try:

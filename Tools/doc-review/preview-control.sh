@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Run list or stop with a target from any directory. For project-based commands,
-# use the project root or pass --project.
+# Compatibility path for persistent-preview.sh.
 set -euo pipefail
-if [[ ${BASH_SOURCE[0]} != "$0" ]]; then
-    printf 'Run this script instead of sourcing it.\n' >&2
-    return 2
-fi
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-exec "${PREVIEW_PYTHON:-python3}" "$SCRIPT_DIR/preview_control.py" "$@"
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+exec bash "$script_dir/persistent-preview.sh" "$@"

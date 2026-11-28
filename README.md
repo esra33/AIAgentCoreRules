@@ -88,9 +88,9 @@ python3 GitIgnoreExternals/AIAgentCoreRules/Tools/feature-state/feature_state.py
 python3 GitIgnoreExternals/AIAgentCoreRules/Tools/feature-state/feature_state.py migrate --root Assets/GitIgnoreAssets/Features --apply
 
 # Start or reuse the project's server; status prints its URL when running.
-bash GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/preview-control.sh start
-bash GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/preview-control.sh status
-bash GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/preview-control.sh stop
+python3 GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/doc_review.py preview start
+python3 GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/doc_review.py preview status
+python3 GitIgnoreExternals/AIAgentCoreRules/Tools/doc-review/doc_review.py preview stop
 ```
 
 Adjust the external-root spelling for the host project. The launcher also accepts
