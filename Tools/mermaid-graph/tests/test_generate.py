@@ -124,3 +124,24 @@ namespace Three { class Ambiguous { Item Value; } }
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(f"Cannot read C# source {bad}", result.stderr)
         self.assertFalse(output.exists())
+
+    def test_create_blank_diagram(self):
+        command = ["bash", str(TOOL / "mermaid-graph.sh"), "create"]
+        created = subprocess.run([*command, str(self.source)], capture_output=True, text=True)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        path = Path(created.stdout.strip())
+        self.assertEqual(path.parent, self.source)
+        self.assertRegex(path.name, r"^Example_\d{2}_\d{2}_\d{2}\.mmd$")
+        self.assertEqual(path.read_text(), "classDiagram\n")
+        self.assertEqual(parse(path.read_text())["diagnostics"], [])
+
+        path.write_text("classDiagram\nclass Saved\n")
+        collision = subprocess.run([*command, str(self.source)], capture_output=True, text=True)
+        self.assertNotEqual(collision.returncode, 0)
+        self.assertIn("already exists", collision.stderr)
+        self.assertEqual(path.read_text(), "classDiagram\nclass Saved\n")
+
+        for destination in (self.root / "missing", path):
+            invalid = subprocess.run([*command, str(destination)], capture_output=True, text=True)
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn("Expected an existing destination directory", invalid.stderr)

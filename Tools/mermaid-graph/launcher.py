@@ -126,14 +126,22 @@ def control(action, target):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("generate", "start", "list", "stop"))
+    if sys.argv[1:2] == ["scaffold"]:
+        from scaffold import main as scaffold_main
+
+        return scaffold_main(sys.argv[2:])
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog="Run scaffold --help to preview or create Unity C# from a diagram.")
+    parser.add_argument("action", choices=("create", "generate", "start", "list", "stop"))
     parser.add_argument("target", nargs="?")
     parser.add_argument("output", nargs="?")
     args = parser.parse_args()
     if args.action == "generate":
         if not args.target or not args.output:
             parser.error("Use generate <source-directory> <output-path>.")
+    elif args.action == "create":
+        if not args.target or args.output:
+            parser.error("Use create <destination-directory>.")
     elif args.output or (args.action == "list") == bool(args.target):
         parser.error("Use start <file.mmd>, list, or stop <file.mmd|PID|URL>.")
     try:
@@ -141,6 +149,10 @@ def main():
             from generator import generate
 
             print(generate(args.target, args.output))
+        elif args.action == "create":
+            from generator import create
+
+            print(create(args.target))
         else:
             control(args.action, args.target)
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:

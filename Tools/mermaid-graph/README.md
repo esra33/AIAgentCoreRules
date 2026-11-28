@@ -10,6 +10,16 @@ Tools/mermaid-graph/mermaid-graph.sh stop path/to/architecture.mmd
 
 Open the printed URL. You can also stop an editor by passing its PID or URL from `list`. Starting the same canonical path again returns its running URL. Separate files get separate loopback servers. The per-user registry and logs live under `~/.mermaid-graph/`.
 
+## Create a blank class diagram
+
+```bash
+bash Tools/mermaid-graph/mermaid-graph.sh create path/to/destination
+```
+
+Pass an existing directory. The command writes a blank `classDiagram` file,
+names it after the directory and UTC date, and prints the path for use with
+`start`. If that filename already exists, the command reports a collision.
+
 ## Generate from C# source
 
 ```bash
@@ -66,3 +76,32 @@ python3 -B -m unittest discover -s Tools/mermaid-graph/tests
 ```
 
 The integration check starts loopback servers and uses a temporary registry and diagram files.
+
+## Scaffold Unity C# from a diagram
+
+```bash
+bash Tools/mermaid-graph/mermaid-graph.sh scaffold design.mmd Assets/MyFeature \
+  --namespace MyGame.MyFeature --asmdef MyGame.MyFeature
+```
+
+Use `--apply` to create the proposed files. Paths are relative to the working
+directory. The tool finds the Unity project from the destination or accepts
+`--project-root` explicitly. It scans C# in `Assets/` and source packages under
+`Packages/`. Omit `--asmdef` to use the destination's existing assembly context.
+
+Use the class syntax above and members such as `+Save(State state) bool`,
+`public bool Save(State state)`, and `+int Count`. A Mermaid method with no
+return type uses `void`. Types in signatures can be primitives or project types,
+including qualified names and single-dimensional arrays. Enum members are
+plain identifiers. Concrete method bodies throw `NotImplementedException`.
+Constructors, properties, and generic declarations are outside the scaffold
+syntax.
+
+Inheritance and realization generate C# base lists. Composition, aggregation,
+and association generate typed fields. A target multiplicity of `*`, `0..*`,
+or `1..*` creates a list field. Class list fields are initialized inline.
+Dependency arrows and gaps on existing types are reported for manual follow-up.
+
+The command validates project source declarations and assembly references.
+Unity compilation checks dependencies outside the scanned folders, conditional
+compilation, and platform settings.

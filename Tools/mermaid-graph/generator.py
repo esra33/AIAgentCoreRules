@@ -17,7 +17,7 @@ ANNOTATIONS = {"interface": "interface", "struct": "struct", "enum": "enumeratio
 TYPE_PART = re.compile(r"@?([A-Za-z_]\w*)\s*(?:<(.*)>)?", re.DOTALL)
 
 
-def declaration_lines(source):
+def declaration_lines(source, line_map=None):
     """Give the line-oriented parser boundaries for compact C# declarations."""
     clean = blank_literals(source)
     boundaries = {0, len(source)}
@@ -39,10 +39,17 @@ def declaration_lines(source):
     # Split the masked source so an inserted newline cannot extend a line comment
     # or alter how a second pass handles literals.
     positions = sorted(boundaries)
-    return "\n".join(clean[start:end] for start, end in zip(positions, positions[1:]))
+    parts = [clean[start:end] for start, end in zip(positions, positions[1:])]
+    if line_map is not None:
+        line = 1
+        for part in parts:
+            count = part.count("\n")
+            line_map.extend(range(line, line + count + 1))
+            line += count
+    return "\n".join(parts)
 
 
-def scan(source):
+def scan(source, *, allow_empty=False, paths=None):
     def fail(error):
         raise error
 
@@ -60,11 +67,14 @@ def scan(source):
                 contents = path.read_text(encoding="utf-8-sig")
             except (OSError, ValueError) as error:
                 raise ValueError(f"Cannot read C# source {path}: {error}") from error
-            for decl in parser.parse(path, declaration_lines(contents)):
+            line_map = [] if paths is not None else None
+            for decl in parser.parse(path, declaration_lines(contents, line_map)):
                 namespace = tuple((part, 0) for part in decl.namespace.split(".") if part)
                 key = namespace + decl.containing_types + ((decl.name, decl.arity),)
                 declarations[key].append(decl)
-    if not declarations:
+                if paths is not None:
+                    paths[decl] = (path, line_map[decl.line - 1])
+    if not declarations and not allow_empty:
         raise ValueError(f"No supported C# type declarations in {source}")
     return declarations
 
@@ -184,22 +194,37 @@ def render(declarations):
     return "\n".join(lines) + "\n"
 
 
-def generate(source, output):
-    source = Path(source)
-    if not source.is_dir():
-        raise ValueError(f"Expected a C# source directory: {source}")
-    output = Path(output)
-    if output.is_dir():
-        date = datetime.now(timezone.utc).strftime("%d_%m_%y")
-        output /= f"{Path(os.path.abspath(source)).name}_{date}.mmd"
-    if not output.parent.is_dir():
-        raise ValueError(f"Output parent directory does not exist: {output.parent}")
-    if os.path.lexists(output):
-        raise ValueError(f"Output already exists: {output}")
-    diagram = render(scan(source))
+def dated_output(directory, name):
+    date = datetime.now(timezone.utc).strftime("%d_%m_%y")
+    return directory / f"{name}_{date}.mmd"
+
+
+def write_diagram(output, diagram):
     try:
         with output.open("x", encoding="utf-8", newline="\n") as destination:
             destination.write(diagram)
     except FileExistsError:
         raise ValueError(f"Output already exists: {output}") from None
     return output
+
+
+def create(directory):
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise ValueError(f"Expected an existing destination directory: {directory}")
+    name = Path(os.path.abspath(directory)).name or "ClassDiagram"
+    return write_diagram(dated_output(directory, name), "classDiagram\n")
+
+
+def generate(source, output):
+    source = Path(source)
+    if not source.is_dir():
+        raise ValueError(f"Expected a C# source directory: {source}")
+    output = Path(output)
+    if output.is_dir():
+        output = dated_output(output, Path(os.path.abspath(source)).name)
+    if not output.parent.is_dir():
+        raise ValueError(f"Output parent directory does not exist: {output.parent}")
+    if os.path.lexists(output):
+        raise ValueError(f"Output already exists: {output}")
+    return write_diagram(output, render(scan(source)))
